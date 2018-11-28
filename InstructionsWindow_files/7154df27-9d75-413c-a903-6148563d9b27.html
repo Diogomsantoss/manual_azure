@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<!-- saved from url=(0078)https://labondemand.com/CloudClient/7154df27-9d75-413c-a903-6148563d9b27?rc=10 -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width">
+    <title>3: Identity</title>
+    <link href="./CloudClient.css" rel="stylesheet" type="text/css">
+    <link id="themeStylesheet" href="./Blue.css" rel="stylesheet">
+    <script src="./jquery-2.1.4.min.js.download" type="text/javascript"></script>
+    <script src="./showdown.min.js.download"></script>
+    <link rel="stylesheet" type="text/css" href="./prettify.css">
+    <script src="./yaml.min.js.download"></script>
+    <script src="./LocalizeTo" type="text/javascript"></script>
+    <script src="./LocalizeTo(1)" type="text/javascript"></script>
+</head>
+<body class="childClient">
+<div id="labClient" style="">
+    <div id="header">
+        <div id="labName">3: Identity</div>
+        <div id="timerWrapper"><span id="timer">2 Hr 13 Min Remaining</span></div>
+        <div id="topNav">
+            <div id="notificationsButton"></div>
+            <div id="mainMenuButton" title="Menu"></div>
+            <div id="mainMenu" style="display:none;">
+                    <div id="save" class="menuItem">Save</div>
+                                    <div id="exit" class="menuItem">End</div>
+                                                <div id="mainMenuExtensions"><div id="joinWindows" class="menuItem">Join Windows</div></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="tabHeadings" class="noselect">
+            <div class="tabHeading selected" data-target="instructionsTab" data-id="0">Instructions</div>            
+                    <div class="tabHeading" data-target="resourcesTab" data-id="1">Resources</div>
+                    <div class="tabHeading" data-target="helpTab" data-id="2">Help</div>
+        <span id="zoomWrapper">
+            <input type="range" id="zoom" min="50" max="400" value="100" step="10">
+            <span id="zoomValue" style="display:inline-block; vertical-align: top; padding-top:3px; min-width:30px;">100%</span>
+        </span>
+    </div>
+
+    <div id="tabs">
+        <div id="instructionsTab" class="tab   selected" style="display: block;">           
+            <div id="instructionsContent" class="tabContent withFooter withNavigation">
+                                <div class="zoomable" id="pages" style="transform: scale(1); width: 100%;"><div class="page" id="page0"><h1 id="lab-3-cloud-identity-and-access">LAB 3: Cloud Identity and Access</h1>
+<h2 id="introduction">Introduction</h2>
+<p>In this lab, you will synchronize users from an on-premises AD environment to an Azure AD tenant using Azure AD Connect. Once synchronized, you will enable multi-factor authentication for some test users. You will also explore the Azure AD Application proxy by installing and configuring this for a test internal web application. Lastly, you will look at the compliance and reporting features of Azure AD, such as auditing Reporting.</p>
+<h2 id="objectives">Objectives</h2>
+<p>After completing this lab, you will be able to: </p>
+<p>•    Install and configure Azure AD Connect and synchronize users</p>
+<p>•    Understand how to enable multi-factor authentication</p>
+<p>•    Setup and configure the Azure Application Proxy</p>
+<p>•    View the auditing and monitoring reports in Azure AD and understand the compliance features</p>
+<h1 id="exercise-1-install-aad-connect-on-server-01">Exercise 1: Install AAD Connect on SERVER-01</h1>
+<h2 id="scenario">Scenario</h2>
+<p>You want to synchronise your on-premises identities to Azure AD for single sign-on in the cloud and enforcement of MFA for access to cloud services. Additionally, you have an existing web application which doesn’t support MFA but you want to use Azure AD to secure access to this applciation.</p>
+<ol>
+<li><p>Install Azure AD Connect</p>
+<ol>
+<li>On <strong>SERVER-01</strong>, download Azure AD Connect from https://www.microsoft.com/en-us/download/details.aspx?id=47594.</li>
+<li>Double click the download to start the installation process</li>
+<li>Agree to the license and click Continue
+
+<img src="./ytiqnt5c.jpg" alt="ytiqnt5c.jpg"></li>
+<li>Click Customize
+
+<img src="./ttxbwpj0.jpg" alt="ttxbwpj0.jpg"></li>
+<li>Click Install
+
+<img src="./r4y9wtft.jpg" alt="r4y9wtft.jpg"></li>
+<li>Select Password Synchronisation
+
+<img src="./r1hqt64r.jpg" alt="r1hqt64r.jpg"></li>
+<li>Enter your Global Admin credentials and click Next. If you don’t remember your GA credentias, go to Active Directory &gt; Users and Groups &gt; All Users. There you will find your user. You can also create a new Global Admin.
+
+<img src="./wspt5e4f.jpg" alt="wspt5e4f.jpg"></li></ol>
+<p>Ordinarily you would register your company’s domain name within Azure AD such that any synchronized users can have that as their suffix in the cloud. As this is for testing only all users will assume the <tenantname>.onmicrosoft.com suffix</tenantname></p>
+<ol start="8">
+<li>Click on Add Directory and connect to the on-premises directory, contoso.com
+
+<img src="./59scpnm0.jpg" alt="59scpnm0.jpg"></li>
+<li>Select the <strong>contoso.com\labadmin</strong> account and password
+
+<img src="./7xm5n07g.jpg" alt="7xm5n07g.jpg"></li>
+<li>Check the Continue without any verified domains button and then next
+
+<img src="./dq701ext.jpg" alt="dq701ext.jpg"></li>
+<li>Ensure that only the AAD Sync Users OU is synced, as opposed to all domains and OU’s
+
+<img src="./o36pyq3e.jpg" alt="o36pyq3e.jpg"></li>
+<li>Leave the settings as default for the Identifying users page
+
+<img src="./zhesqgr3.jpg" alt="zhesqgr3.jpg"></li>
+<li>Click next with Synchronise all users and groups selected
+
+<img src="./oyrj3sr8.jpg" alt="oyrj3sr8.jpg"></li>
+<li>Leave the optional features as default
+
+<img src="./1fbhft31.jpg" alt="1fbhft31.jpg"></li>
+<li>Select Start the synchronisation process when the configuration completes and then click Install
+
+<img src="./8cswnvtd.jpg" alt="8cswnvtd.jpg"></li>
+<li>The below screen shows the successful completion of setup.
+
+<img src="./yqrf4m7g.jpg" alt="yqrf4m7g.jpg"></li></ol></li>
+
+<li><p>View the Synced users</p>
+<ol>
+<li>From a browser, navigate to <code title="Type Text" class="prettyprint prettyprinted" style=""><span class="pln">https</span><span class="pun">:</span><span class="com">//portal.azure.com</span></code> and, if necessary, sign in with your Azure account</li>
+<li>On the right hand side scroll down to Azure Active Directory and click this, on the right hand pane select All users
+
+<img src="./ysv41ooi.jpg" alt="ysv41ooi.jpg"></li>
+<li>You should see lots of users in the directory who have the Sourced From attribute set as “Windows Server AD”</li></ol></li>
+</ol>
+</div><div class="page selected" id="page1">
+<h1 id="exercise-2-enforce-mfa-for-global-admins">Exercise 2: Enforce MFA for Global Admins</h1>
+<h2 id="scenario-1">Scenario</h2>
+<p>In this exercise you will setup and configure MFA for your admins, this is especially important for cloud accounts which may be susceptible to password guessing attempts.</p>
+<blockquote class="note">
+  <p><strong>Note:</strong> Perform all steps on <strong>ADMIN-01</strong></p>
+</blockquote>
+<ol>
+<li><p>Enable EMS features</p>
+<ol>
+<li><p>From a browser, navigate to https://portal.azure.com and, if necessary, sign in with your Azure account</p></li>
+<li><p>On the left hand side scroll down to Azure Active Directory and click on <em>Licenses*</em> under <strong>Manage</strong>
+
+<img src="./pnxmmrsi.jpg" alt="pnxmmrsi.jpg"></p></li>
+<li><p>At the top of the page select <strong>All Products</strong> and then on <strong>Try/Buy</strong>
+
+<img src="./obcgt72y.jpg" alt="obcgt72y.jpg"></p></li>
+<li><p>Activate the <strong>Enterprise Mobility Suite</strong> trial
+
+<img src="./2gpqz952.jpg" alt="2gpqz952.jpg"></p></li></ol>
+<blockquote class="knowledge">
+  <p>Note, MFA can be licensed and used in many ways, here is a breakdown of the options:  </p>
+  <p>• MFA is free for Azure AD users who hold an administrator role<br>
+  • A subset of MFA features is licensed with Office 365<br>
+  • Full MFA comes with an Azure AD Premium license<br>
+  • MFA can be paid for as you go, either per user authentication or per user</p>
+  <p>For this exercise we will assign an Azure AD Premium license and configure MFA via the Azure AD portal.</p>
+</blockquote><div class="moreKnowledge"><a href="https://labondemand.com/CloudClient/7154df27-9d75-413c-a903-6148563d9b27?rc=10#" class="moreKnowledgeLink" style="display: none;">more...</a></div></li>
+<li><p>Enable MFA</p>
+<ol>
+<li>Return to the <strong>All users</strong> list and click <strong>Multi-Factor Authentication</strong> at the top menu
+
+<img src="./884nv28l.jpg" alt="884nv28l.jpg"></li>
+<li>Select the admin accounts and click <strong>Enable</strong>, note that in production you can bulk update users
+
+<img src="./qcukkftm.jpg" alt="qcukkftm.jpg"></li>
+<li>Click <strong>enable multi-factor auth</strong>
+
+<img src="./7lr76alt.jpg" alt="7lr76alt.jpg"></li>
+<li>Click close
+
+<img src="./o5vijuao.jpg" alt="o5vijuao.jpg"></li></ol></li>
+<li><p>Configure MFA for a user and test</p>
+<ol>
+<li><p>Open an new InPrivate browsing session in IE and navigate to <code title="Type Text" class="prettyprint prettyprinted" style=""><span class="pln">https</span><span class="pun">:</span><span class="com">//myapps.microsoft.com</span></code>, when requested enter the username of the user you have just enabled MFA for, this will be the .onmicrosoft.com address as seen in the Azure AD portal. Click Continue to proceed to the next step<br>
+
+<img src="./7indwkch.jpg" alt="7indwkch.jpg">
+Note, you may need to sign out of the myapps portal if it automatically logs you in, if you do just sign back in and specify the test user</p></li>
+<li><p>The password is the same password as the <strong>CONTOSO\labadmin</strong> account
+
+<img src="./opsqt83d.jpg" alt="opsqt83d.jpg"></p></li>
+<li><p>As we have enabled this user for MFA the user is forced to configure this, click Set it up now
+
+<img src="./ld3ibpzp.jpg" alt="ld3ibpzp.jpg"></p></li>
+<li><p>Select to use Authentication Phone and enter your phone number so the MFA service can contact you. Either select via text message or phone call. When configured click Contact Me
+
+<img src="./6besfbi8.jpg" alt="6besfbi8.jpg"></p></li>
+<li><p>The MFA service will now contact you, answer the phone call and follow the prompts or when you get the text enter the code
+
+<img src="./2topq4u0.jpg" alt="2topq4u0.jpg"></p></li>
+<li><p>When the authentication has been verified you will be presented with a screen which gives you an app password, these passwords are used for application which can’t or don’t support MFA. Click Finished
+
+<img src="./qzshhtsy.jpg" alt="qzshhtsy.jpg"></p></li>
+<li><p>MFA has now been configured for this user, sign out and sign back in to test MFA. Once you’ve entered your password you will be contacted by the method that you supplied during initial setup.<br>
+
+<img src="./iga81apv.jpg" alt="iga81apv.jpg">
+Once you have signed in to myapps portal a user can configure their MFA options by going to the Profile link and click Additional security verification</p></li>
+<li><p>MFA options can be changed here, or a new MFA provider specified. If you have time as an optional lab you can setup the mobile app. Download the Azure Authenticator app on your smartphone and then go through the configuration options for Azure Authenticator App. Once configured you can use this to sign into Azure AD services instead of having a phone call or text message
+
+<img src="./puo0m20k.jpg" alt="puo0m20k.jpg">  </p></li></ol></li>
+</ol>
+</div><div class="page" id="page2">
+<h1 id="exercise-3-deploy-azure-ad-application-proxy">Exercise 3: Deploy Azure AD Application Proxy</h1>
+<h2 id="scenario-2">Scenario</h2>
+<p>In this exercise you will deploy a Contoso web application and configure Azure AD Application Proxy to publish this application over the internet</p>
+<blockquote class="note">
+  <p><strong>Note:</strong> Perform all steps on <strong>ADMIN-01</strong></p>
+</blockquote>
+<ol>
+<li><p>Enable Application Proxy</p>
+<ol>
+<li>Navigate to <code title="Type Text" class="prettyprint prettyprinted" style=""><span class="pln">http</span><span class="pun">:</span><span class="com">//portal.azure.com</span></code> and, if necessary, sign in with your Azure account</li>
+<li>On the left hand side scroll down to Azure Active Directory and click Application Proxy </li>
+<li>Click on <strong>Enable application proxy</strong></li>
+<li>Download the connector and copy it to <strong>SERVER-02</strong>(\SERVER-02\C$) 
+
+<img src="./dy4u1nvm.jpg" alt="dy4u1nvm.jpg"></li></ol></li>
+<li><p>Install Application Proxy Connector</p></li>
+</ol>
+<ul>
+<li><p>Switch to <strong>SERVER-02</strong>  </p>
+<ol>
+<li><p>On the Appliction Proxy page on the Azure Active Dirctory menu, click the <strong>Download Connector</strong> link
+
+<img src="./6udmgobd.jpg" alt="6udmgobd.jpg"> </p></li>
+<li><p>Agree to the license agreement and click Download
+
+<img src="./fcg6mm1x.jpg" alt="fcg6mm1x.jpg">  </p></li>
+<li><p>Save the application proxy onto SERVER-02 and then kick off the install. Agree to the license and click Install
+
+<img src="./pj684iz1.jpg" alt="pj684iz1.jpg">  </p></li>
+<li><p>When prompted sign in with the Azure AD global administrator account (i.e user@customname.onmicrosoft.com)</p></li>
+<li><p>Back in the Azure portal click the Application Proxy link again and the server should now show up as a registered connector
+
+<img src="./62awkr99.jpg" alt="62awkr99.jpg"> </p></li></ol></li>
+</ul>
+<ol>
+<li><p>Add the on-premises application</p>
+<ol>
+<li><p>Click your directory within Azure Active Directory and navigate to the <strong>Enterprise Applications</strong> tab then click <strong>New Application</strong> at the top of the screen
+
+<img src="./132legkw.jpg" alt="132legkw.jpg"> </p></li>
+<li><p>Select <strong>On-premises application</strong>
+
+<img src="./6penxkq9.jpg" alt="6penxkq9.jpg">  </p></li>
+<li><p>Enter the following information:<br>
+
+<img src="./lm4ujhz0.jpg" alt="lm4ujhz0.jpg">  </p>
+<p>Name: <strong>Contoso Web App</strong></p>
+<p>Internal URL: <strong>http://server-02.contoso.com</strong>  </p>
+<p>Preauthentication Method: <strong>Azure Active Directory  </strong></p>
+<p>Note that by selecting Azure AD as the preauthentication method any users accessing the internal application over the internet will first be authenticated by Azure AD, which means that you can get the benefits of the logging and alerting and also MFA for you internal app</p></li>
+<li><p>Click the <strong>Add</strong> to continue</p></li></ol>
+<blockquote class="knowledge">
+  <ul>
+  <li>By default the application is published with a DNS name of “<webappname>-<tenantname>.msappproxy.net  </tenantname></webappname></li>
+  <li>If you have configured a custom domain name for Azure you can specify your own suffix, however you will need to ensure the DNS is correct and that you have uploaded an SSL certificate</li>
+  <li>SSL must be enabled for all proxied apps</li>
+  <li>You can change the pre-authentication method from Azure AD to pass-through if you don’t want to pre-authenticate users with Azure AD</li>
+  <li>If your internal app is using integrated Windows authentication then you can enable Kerberos constrained delegation for the proxy, however Azure AD pre-authentication must be enabled and you must be able to map the Azure AD username to an internal user.</li>
+  <li>You can upload your own logo which will be used for the application</li></ul>
+</blockquote><div class="moreKnowledge"><a href="https://labondemand.com/CloudClient/7154df27-9d75-413c-a903-6148563d9b27?rc=10#" class="moreKnowledgeLink">more...</a></div></li>
+<li><p>Enable user access for the application</p>
+<ol>
+<li><p>Navigate to the <strong>Enterprise Applications</strong> menu within <strong>Azure Active Dirctory</strong>. Open the <strong>Application Proxy</strong> tab of the <strong>Contoso Web App</strong> application
+
+<img src="./5z91wc1q.jpg" alt="5z91wc1q.jpg"></p></li>
+<li><p>To enable users to access the application, it’s necessary to grant them a license and also to assign their access within the application. We’ll now add two new groups to which license and application access will be assigned. Contoso Web App Users and Contoso Web App Admins.   </p>
+<p>Navigate to Users and Groups in the Azure Active Directory and select All Groups then New Group</p>
+<p>
+<img src="./c51i1j2f.jpg" alt="c51i1j2f.jpg"></p></li>
+<li><p>Name the group Contoso Web App Users and add Athea Larrick and Anna Copenhaver as members
+
+<img src="./pp4i1908.jpg" alt="pp4i1908.jpg"> </p></li>
+<li><p>Repeat the process to create Contoso Web App Admins, this time adding Cecila Della and Colton Gagliano as members
+
+<img src="./o9p2e96q.jpg" alt="o9p2e96q.jpg"> </p></li>
+<li><p>Go into the group properities and on the Licenses tab, select <strong>assign</strong>. It’s necessary to do this for both the groups just created
+
+<img src="./c72dj9u2.jpg" alt="c72dj9u2.jpg"></p></li>
+<li><p>Assign the EMS license, along with all the options enabled
+
+<img src="./14dt3b0b.jpg" alt="14dt3b0b.jpg"> 
+
+<img src="./6gqqfm66.jpg" alt="6gqqfm66.jpg"></p></li>
+<li><p>Ensure licenses were assigned to both the Contoso Web App Users and Contoso Web App Admins groups. On the main Azure Active Directory menu, select <strong>Licenses --&gt; Products --&gt; Enterprise Mobility and Security --&gt; Licensed Groups</strong>. You should see both groups listed
+
+<img src="./pf9hauj8.jpg" alt="pf9hauj8.jpg"></p></li>
+<li><p>Now find the Contoso Web App under Enterprise Applications in the main Azure Active Directory menu. Under Users and groups click <strong>Add user</strong>
+
+<img src="./bmy71s9x.jpg" alt="bmy71s9x.jpg"></p></li>
+<li><p>Assign the <strong>Contoso Web App Users</strong> and <strong>Contoso Web App Admins</strong> group access
+
+<img src="./yij3tof1.jpg" alt="yij3tof1.jpg"></p></li>
+<li><p>The Azure App Proxy is now configured to present the internal sample application over the internet and to pre-authenticate users with Azure AD</p></li></ol></li>
+
+<li><p>Test Application Proxy</p>
+<ol>
+<li><p>On ADMIN-01 machine open a new IE Window and navigate to <code title="Type Text" class="prettyprint prettyprinted" style=""><span class="pln">http</span><span class="pun">:</span><span class="com">//myapps.microsoft.com</span></code> (this will test the access to the web app from the internet). When prompted enter the username for <strong>Anna Copenhaver</strong> which you added into the Contoso Web App Users group   </p>
+<p>The username is <strong>copenann@(your tenant).onmicrosoft.com</strong> and the password is the same as CONTOSO\labadmin password
+
+<img src="./777q43c3.jpg" alt="777q43c3.jpg"> </p></li>
+<li><p>Notice that the Contoso Web App is listed in the panel. Click the logo for the app. A new tab opens and the internal web app is shown. Note that we don’t get prompted for credentials again as we are using SSO from the first login to pass through to the internal application
+
+<img src="./mptu257a.jpg" alt="mptu257a.jpg"> </p></li>
+<li><p>Also note the URL for the application is the same as was configured in the Azure AD portal</p></li></ol></li>
+</ol>
+</div><div class="page" id="page3">
+<h1 id="exercise-4-use-conditional-access-policies-to-secure-contoso-web-app">Exercise 4: Use Conditional Access Policies to Secure Contoso Web App</h1>
+<h2 id="scenario-3">Scenario</h2>
+<p>You want to ensure the application admins use MFA when they log in and access Contoso Web App. In this exercise you use Contitional Access to provide additional security controls on Contoso Web App.  </p>
+<blockquote class="note">
+  <p><strong>Note:</strong> Perform all steps on <strong>ADMIN-01</strong></p>
+</blockquote>
+<ol>
+<li><p>Create the Conditional Access Policy</p>
+<ol>
+<li><p>In the Azure Active Directory menu, select <strong>Conditional Access</strong> and then click <strong>New Policy</strong>
+
+<img src="./jw5xmlhv.jpg" alt="jw5xmlhv.jpg"></p></li>
+<li><p>Add the <strong>Contoso Web App Admins</strong> group in the Include menu
+
+<img src="./nelnw9n9.jpg" alt="nelnw9n9.jpg"></p></li>
+<li><p>Select the <strong>Contoso Web App</strong> which whill receive this policy
+
+<img src="./qre88vxd.jpg" alt="qre88vxd.jpg"></p></li>
+<li><p>Select <strong>Conditions</strong> and review all the options for your awareness.
+
+<img src="./og6i1ozd.jpg" alt="og6i1ozd.jpg"></p></li>
+<li><p>Now under Access Controls, select <strong>Grant access</strong> and <strong>Require multi-factor</strong> authentication
+
+<img src="./jigriwxq.jpg" alt="jigriwxq.jpg"></p></li>
+<li><p>Complete the creation of the policy, ensure that <strong>Enable policy</strong> is on</p>
+<p>
+<img src="./8vc006v7.jpg" alt="8vc006v7.jpg"></p></li></ol></li>
+
+<li><p>Test the Conditional Access Policy </p>
+<ol>
+<li><p>We’ll now sign-in to Contoso Web App as a member of the Admin group to verify our Conditional Access Policy is working as planned.  </p>
+<p>On the ADMIN-01 machine open a new IE Window and navigate to <code title="Type Text" class="prettyprint prettyprinted" style=""><span class="pln">http</span><span class="pun">:</span><span class="com">//myapps.microsoft.com</span></code> (this will test the access to the web app from the internet). When prompted enter the username for <strong>Colton Gagliano</strong> which you added into the Contoso Web App Admins group.</p>
+<p>The username is <strong>gaglicol@(your tenant).onmicrosoft.com</strong> and the password is the same password as CONTOSO\labadmin
+
+<img src="./l96nf3ix.jpg" alt="l96nf3ix.jpg"></p></li>
+<li><p>After clicking Contoso Web App, you should now get a prompt to sign up for MFA before access to the app
+
+<img src="./c1syuaf3.jpg" alt="c1syuaf3.jpg"></p></li></ol></li>
+</ol>
+<h1 id="exercise-5-disable-azure-ad-connect-sync">Exercise 5: Disable Azure AD Connect Sync</h1>
+<h2 id="objective">Objective</h2>
+<p>When this lab is closed, the AAD Connect VM will be destroyed and to avoid sync errors being received by the administrator, we will turn off sync manually via PowerShell.</p>
+<ol>
+<li><p>Open a PowerShell prompt on <strong>ADMIN-01</strong></p></li>
+<li><p>Type the following command and login using your Azure AD Global Admin identity and password</p>
+<p><code title="Type Text" class="prettyprint prettyprinted" style=""><span class="typ">Connect</span><span class="pun">-</span><span class="typ">MsolService</span></code></p></li>
+<li><p>Run the following command to disable sync</p>
+<p><code title="Type Text" class="prettyprint prettyprinted" style=""><span class="typ">Set</span><span class="pun">-</span><span class="typ">MsolDirSyncEnabled</span><span class="pln"> </span><span class="pun">-</span><span class="typ">EnableDirSync</span><span class="pln"> $false</span></code></p></li>
+<li><p>Congratulations, you have finished this lab.</p></li>
+</ol></div></div>
+            </div>
+            <div id="instructionsFooter">
+                <div id="taskProgressBar" class="progressBar" style="display:none;">
+                    <div id="taskProgressText" class="progressText">0%</div>
+                    <div id="taskProgress" class="progress" style="width:0"></div>
+                </div>
+                <div id="instructionsNavigation">
+                    <span id="previous" class="noselect">Previous</span>
+                    <span id="next" class="noselect">Next: Exercise 3: Deploy Azure AD...</span>
+                </div>
+            </div>
+        </div>
+        <div id="resourcesTab" class="tab selected" style="display: none;">
+            <div class="tabContent">
+                <div class="zoomable" style="transform: scale(1); width: 100%;">
+                    <div id="cloudCredentials"></div>
+                    <div id="cloudResources"></div>
+                    <div id="resourcesExtensions"><div class="machine hoverColor selectedColor activeColor" id="machine69819">
+            <img alt="" class="thumbnail" src="./saved_resource">
+            <div class="machineNameCenter">
+                <div class="machineName">DC-01</div>
+            </div>
+            <div class="inputRelease">
+                To release mouse, press <strong>Ctrl+Alt+Left Arrow</strong>
+            </div>
+            <div class="machineInfo" style="display: none;">
+                <table class="credentials fields">
+                    <tbody><tr>
+                        <td class="fieldName">Username</td>
+                        <td><span class="typeText username" title="Type Text">CONTOSO\labadmin</span></td>
+                    </tr>
+                    <tr>
+                        <td class="fieldName">Password</td>
+                        <td><span class="typeText password" title="Type Text">Pass@w0rd$$$</span></td>
+                    </tr>
+                </tbody></table>
+                    <div class="floppyDrive" style="display: none;">
+                    </div>
+                    <div class="dvdDrive">
+                        <div class="dvdDriveInner" style="display:none;">
+                            <div class="selectHeading">DVD Drive</div>
+                            <select>
+                                <option value="-2">No Media</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="networkAdapters"></div>
+                    <input type="button" class="ctrlAltDel" value="Ctrl+Alt+Delete">
+            </div>
+        </div><div class="machine hoverColor selectedColor activeColor selected" id="machine69820">
+            <img alt="" class="thumbnail" src="./saved_resource(1)">
+            <div class="machineNameCenter">
+                <div class="machineName">ADMIN-01</div>
+            </div>
+            <div class="inputRelease">
+                To release mouse, press <strong>Ctrl+Alt+Left Arrow</strong>
+            </div>
+            <div class="machineInfo" style="display: block;">
+                <table class="credentials fields">
+                    <tbody><tr>
+                        <td class="fieldName">Username</td>
+                        <td><span class="typeText username" title="Type Text">CONTOSO\labadmin</span></td>
+                    </tr>
+                    <tr>
+                        <td class="fieldName">Password</td>
+                        <td><span class="typeText password" title="Type Text">Pass@w0rd$$$</span></td>
+                    </tr>
+                </tbody></table>
+                    <div class="floppyDrive" style="display: none;">
+                    </div>
+                    <div class="dvdDrive">
+                        <div class="dvdDriveInner" style="display:none;">
+                            <div class="selectHeading">DVD Drive</div>
+                            <select>
+                                <option value="-2">No Media</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="networkAdapters"></div>
+                    <input type="button" class="ctrlAltDel" value="Ctrl+Alt+Delete">
+            </div>
+        </div><div class="machine hoverColor selectedColor activeColor" id="machine69821">
+            <img alt="" class="thumbnail" src="./saved_resource(2)">
+            <div class="machineNameCenter">
+                <div class="machineName">SERVER-01</div>
+            </div>
+            <div class="inputRelease">
+                To release mouse, press <strong>Ctrl+Alt+Left Arrow</strong>
+            </div>
+            <div class="machineInfo" style="display: none;">
+                <table class="credentials fields">
+                    <tbody><tr>
+                        <td class="fieldName">Username</td>
+                        <td><span class="typeText username" title="Type Text">CONTOSO\labadmin</span></td>
+                    </tr>
+                    <tr>
+                        <td class="fieldName">Password</td>
+                        <td><span class="typeText password" title="Type Text">Pass@w0rd$$$</span></td>
+                    </tr>
+                </tbody></table>
+                    <div class="floppyDrive" style="display: none;">
+                    </div>
+                    <div class="dvdDrive">
+                        <div class="dvdDriveInner" style="display:none;">
+                            <div class="selectHeading">DVD Drive</div>
+                            <select>
+                                <option value="-2">No Media</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="networkAdapters"></div>
+                    <input type="button" class="ctrlAltDel" value="Ctrl+Alt+Delete">
+            </div>
+        </div><div class="machine hoverColor selectedColor activeColor" id="machine69822">
+            <img alt="" class="thumbnail" src="./saved_resource(3)">
+            <div class="machineNameCenter">
+                <div class="machineName">SERVER-02</div>
+            </div>
+            <div class="inputRelease">
+                To release mouse, press <strong>Ctrl+Alt+Left Arrow</strong>
+            </div>
+            <div class="machineInfo" style="display: none;">
+                <table class="credentials fields">
+                    <tbody><tr>
+                        <td class="fieldName">Username</td>
+                        <td><span class="typeText username" title="Type Text">CONTOSO\labadmin</span></td>
+                    </tr>
+                    <tr>
+                        <td class="fieldName">Password</td>
+                        <td><span class="typeText password" title="Type Text">Pass@w0rd$$$</span></td>
+                    </tr>
+                </tbody></table>
+                    <div class="floppyDrive" style="display: none;">
+                    </div>
+                    <div class="dvdDrive">
+                        <div class="dvdDriveInner" style="display:none;">
+                            <div class="selectHeading">DVD Drive</div>
+                            <select>
+                                <option value="-2">No Media</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="networkAdapters"></div>
+                    <input type="button" class="ctrlAltDel" value="Ctrl+Alt+Delete">
+            </div>
+        </div></div>
+                    <div id="externalResources"></div>
+                </div>
+            </div>
+        </div>
+        <div id="helpTab" class="tab " style="display: none;">
+            <div class="tabContent">
+                <div class="zoomable" style="transform: scale(1); width: 100%;">
+
+                    <h2>Theme</h2>
+                    <div>
+                        <select id="theme">
+                            <option value="4" data-name="Gray">Gray</option>
+                            <option value="3" data-name="Blue" selected="selected">Blue</option>
+                            <option value="5" data-name="Green">Green</option>
+                            <option value="6" data-name="Orange">Orange</option>
+                            <option value="7" data-name="Purple">Purple</option>
+                            <option value="8" data-name="Red">Red</option>
+                            <option value="20" data-name="HighContrast">Dark</option>
+                        </select>
+                    </div>
+
+                    <div id="helpExtensions"><span><!--spacer--></span><h2>Machine Remote Controller</h2><select id="machineRemoteController">
+                    <option value="10" selected="selected">HTML5</option>
+                                    <option value="20">Flash</option>
+                                    <option value="30">Silverlight</option>
+                            </select><div id="remoteControllerLowPerformance" style="display: none;"><a href="https://labondemand.com/CloudClient/7154df27-9d75-413c-a903-6148563d9b27?rc=10#">Lower performance controller</a></div></div>
+
+                        <h2>Support Information</h2>
+                        <table class="fields">
+                            <tbody><tr>
+                                <td class="fieldName">ID</td>
+                                <td>7898966</td>
+                            </tr>
+                            <tr>
+                                <td class="fieldName">Host</td>
+                                <td>TPAHost179</td>
+                            </tr>
+                            <tr>
+                                <td class="fieldName">Datacenter</td>
+                                <td>US East</td>
+                            </tr>
+                        </tbody></table>
+
+                    <ul class="iconLinksList">
+                        <li class="questionIcon">
+                            <a href="https://learnondemand.zendesk.com/hc/en-us/sections/201084259-Enlight-LOD-Lab-User-Lab-Interface-Topics" target="_blank">Lab Interface FAQ</a>
+                            <div class="description">Frequently asked questions about the lab interface.</div>
+                        </li>
+                                                <li class="supportIcon">
+                            <a href="https://learnondemand.zendesk.com/hc/en-us/requests/new" target="_blank">Submit a Support Request</a>
+                        </li>
+                                            </ul>
+
+                    <div style="margin-top:20px;">
+                        © 2018 <a href="http://learnondemandsystems.com/" target="_blank">Learn on Demand Systems</a>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+     <div id="notificationContainer"></div>
+
+</div>
+
+<div id="fullScreenMessage" style="display: none;">
+    <div id="fullScreenMessageMask"></div>
+    <div id="fullScreenMessageIcon"></div>
+    <div id="fullScreenMessageCenter" class="baseColor">
+        <div id="fullScreenMessageTextWrapper">
+            <span id="fullScreenMessageLoadingIcon"></span>
+            <div id="fullScreenMessageTitle"></div>
+            <div id="fullScreenMessageText"></div>
+            <div id="fullScreenMessageButtonWrapper">
+                <span id="fullScreenMessageButtons"></span>
+                <input type="button" id="closeWindow" value="Close Window">
+            </div>
+            <div id="fullScreenProgressWrapper" style="display: none;">
+                <div id="fullScreenProgressText"></div>
+                <div id="fullScreenProgressBar">
+                    <div id="fullScreenProgressFill"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+   
+<textarea id="copyInput" value="" style="position: absolute; left:-10000px; top:-10000px; "></textarea>
+
+<script type="text/javascript">
+    var model = {
+        id: 7898966,
+        key: "7154df27-9d75-413c-a903-6148563d9b27",
+        monitor: false
+    };
+</script>
+
+
+
+</body></html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<!-- saved from url=(0085)https://labondemand.com/InstructionsWindow/7154df27-9d75-413c-a903-6148563d9b27?rc=10 -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width">
+    <title>InstructionsWindow</title>
+    <script src="./InstructionsWindow_files/jquery-2.1.4.min.js.download" type="text/javascript"></script>
+
+    <style>
+        body, html, iframe, #wrapper {
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            margin: 0;
+            border: none;
+            overflow: hidden;
+        }
+
+        #fullScreenMessageTextWrapper {
+            background-color: black;
+            color: white;
+        }
+
+        #fullScreenMessageMask{
+            opacity:.75;
+        }
+
+    </style>
+    <link href="./InstructionsWindow_files/CloudClient.css" rel="stylesheet">
+</head>
+<body>
+
+    <div id="wrapper">
+        <iframe id="instructionsIFrame" src="./InstructionsWindow_files/7154df27-9d75-413c-a903-6148563d9b27.html"></iframe>
+    </div>
+
+    <div id="fullScreenMessage" style="display:none;">
+        <div id="fullScreenMessageMask"></div>
+        <div id="fullScreenMessageIcon"></div>
+        <div id="fullScreenMessageCenter" class="baseColor">
+            <div id="fullScreenMessageTextWrapper">
+                <span id="fullScreenMessageLoadingIcon"></span>
+                <div id="fullScreenMessageTitle"></div>
+                <div id="fullScreenMessageText"></div>
+                <div id="fullScreenProgressWrapper" style="display: none;">
+                    <div id="fullScreenProgressText"></div>
+                    <div id="fullScreenProgressBar">
+                        <div id="fullScreenProgressFill"></div>
+                    </div>
+                </div>
+                <div id="fullScreenMessageButtonWrapper">
+                    <span id="fullScreenMessageButtons"></span>
+                    <input type="button" id="closeWindow" value="Close Window" style="display:none;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+
+        var instructionsWindow;
+
+        $(function () {
+            instructionsWindow = document.getElementById("instructionsIFrame").contentWindow;
+            $(window).unload(function () {                
+                window.opener.externalInstructionsClosing();                
+            });
+        })
+
+        function isClientWrapper() {
+            return true;
+        }
+
+        function isSplitWindowWrapper() {
+            return true;
+        }
+
+        function instructionsUpdated(rawContent) {
+            window.opener.instructionsUpdatedFromSplitWindow(rawContent); 
+        }
+
+        function getInstructionsFrameContentWindow() {
+            return document.getElementById("instructionsIFrame").contentWindow;
+        }
+
+        function instructionsHaveLoaded() { //called by the cloud client page when it's done loading in the iframe
+            instructionsWindow.labClient.disableNavigationWarning();
+            var mainMenuExtensionsPlaceHolder = instructionsWindow.labClient.getMainMenuExtensionsPlaceHolder();
+            mainMenuExtensionsPlaceHolder.append($('<div id="joinWindows" class="menuItem">Join Windows</div>'));
+            mainMenuExtensionsPlaceHolder.find("#joinWindows").click(function () {
+                window.opener.externalInstructionsClosing();
+                window.close();
+            });
+            window.opener.externalInstructionsWindowLoaded();
+        }
+
+        function showFullScreenMessage(options) {
+            $("#fullScreenMessageTextWrapper").show();
+            if (options.buttons && options.buttons.length > 0) {
+                $("#fullScreenMessageText").html("A question is pending in the primary window.");
+                $("#fullScreenMessage").removeClass("withLoadingImage");
+            } else if(options.showLoadingImage) {
+                $("#fullScreenMessageText").html("");
+                $("#fullScreenMessage").addClass("withLoadingImage");
+            } else {
+                $("#fullScreenMessage").removeClass("withLoadingImage");
+                $("#fullScreenMessageTextWrapper").hide();
+            }
+            $("#fullScreenMessage").show();
+            window.opener.showFullScreenMessage(options);
+        }
+
+        function hideFullScreenMessage() {
+            $("#fullScreenMessage").hide();
+            window.opener.hideFullScreenMessage();
+        }
+
+        function childWindowClosing() {
+
+        }
+
+        function navigationTabChanged(tab) {
+            window.opener.navigationTabChanged(tab);
+        }
+
+        function themChanged(themeName) {
+            window.opener.themChanged(themeName);
+        }
+
+        function typeText(text, canUseVmClipboard) {
+            window.opener.typeText(text, canUseVmClipboard);
+        }
+
+        function getSelectedMachine() {
+            window.opener.getSelectedMachine();
+        }
+
+        function getVmSize() {
+            window.opener.getVmSize();
+        }
+
+        function selectMachineById(id) {
+            window.opener.selectMachineById(id, true);
+        }
+
+        function loadOpticalMediaOnSelectedMachine(id) {
+            window.opener.loadOpticalMediaOnSelectedMachine(id);
+        }
+
+        function loadFloppyMediaOnSelectedMachine(id) {
+            window.opener.loadFloppyMediaOnSelectedMachine(id);
+        }
+
+        function executeCommandOnSelectedMachine(language, commandText) {
+            window.opener.executeCommandOnSelectedMachine(language, commandText);
+        }
+
+        function sendCtrlAltDelete() {
+            window.opener.sendCtrlAltDelete();
+        }
+
+        function labIsComplete() {
+            try {
+                if (window.opener && window.opener.labIsComplete) {
+                    window.opener.labIsComplete();
+                }
+            } catch (e) {
+
+            }
+        }
+
+        function getInstructionsEditWindow() {
+            return window.opener.getInstructionsEditWindow();
+        }
+
+    </script>
+
+
+
+</body></html>

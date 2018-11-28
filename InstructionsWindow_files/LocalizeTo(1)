@@ -1,0 +1,2515 @@
+var labClient = function () {
+
+    var complete = false;
+    var disableNavigationWarning = false;
+    var labData = null;
+    var $labClient;
+    var $instructionsContent;
+    var $instructionsNavigation;
+    var initialized = false;
+    var timeWarningShown = false;
+    var extensionPromptHasShown = false;
+    var lastUnsyncedActivity = null;
+    var childWindows = [];
+    var remoteStateChangeInProgress = false;
+    var fullScreenMessageShown = false;
+    var pageIndex = 0;
+    var mainMenuShown = false;
+    var editWindow;
+    var contentRoot;
+    var isChildClient = false;
+    var isSplitWindowClient = false;
+    var $allTasks = null; //cache for getting all tasks for progress tracking. also used when synchronizing task completion during monitoring
+    var pauseServerSync = false;
+    var editTriggered = false;
+    var enableZoom = true;
+
+    function initialize() {
+        if (initialized) {
+            return;
+        }
+        isChildClient = window && window.parent && typeof window.parent.isClientWrapper === "function" && window.parent.isClientWrapper() === true;
+        if (isChildClient) {
+            $("body").addClass("childClient");
+        }
+        isSplitWindowClient = window && window.parent && typeof window.parent.isSplitWindowWrapper === "function" && window.parent.isSplitWindowWrapper() === true;
+        initialized = true;      
+        $labClient = $("#labClient");
+        $instructionsContent = $("#instructionsContent");
+        $instructionsNavigation = $("#instructionsNavigation");
+        $("#customSupport a").each(function () {
+            $(this).attr("target", "_blank");
+        });
+        if (!isSplitWindowClient) {
+            showFullScreenMessage({ title: "Loading your lab content", showLoadingImage: true });     
+        }
+        var url = "/Console/CloudClientData/" + model.id;
+        if (model.monitor) {
+            url += "?monitor=1";
+        }
+        $.ajax({
+            type: "POST",
+            dataType: "json",
+            data: {},
+            cache: false,
+            url: url
+        }).always(function (response) {
+            if (!response || !response.Success) {
+                var error = response && response.Error ? response.Error : "";
+                showFullScreenMessage({ title: "Sorry an error occurred", message: error, showCloseWindowButton: true });
+                return;
+            }
+            labData = response.Data;
+            if (labData.MinutesRemaining > 0) {
+                updateTimer(labData.MinutesRemaining);
+            }            
+            if (labData.Resources && labData.Resources.length > 0) {
+                displayExternalResources();
+            }
+            if (labData.InstructionsPageIndex) {
+                pageIndex = labData.InstructionsPageIndex;
+            }
+            contentRoot = "/content/lab" + labData.ContentLabProfileId + "/";
+            displayInstructions(labData.Instructions);
+            if (labData.Variables) {
+                processVariables();
+            }
+            if (labData.CloudCredentials) {
+                displayCloudCredentials(labData.CloudCredentials);
+            }
+            if (labData.CloudResourceGroupInstances) {
+                displayCloudResources(labData.CloudResourceGroupInstances);
+            }
+
+            setupUiEventHandlers();
+            setupWindowEventHandlers();
+            setupContentEventHandlers($("#resourcesTab"));
+
+            if (isChildClient) {
+                $labClient.show();
+                window.parent.instructionsHaveLoaded();
+            } else {
+                window.setInterval(function () { synchronizeWithServer(); }, 10000); 
+            }
+            hideFullScreenMessage(function () {
+                setupKnowledgeExpanders();
+                setupTaskProgress();
+            });
+            if (labData.AdIntroUrl != null) {
+                showDialog({
+                    url: labData.AdIntroUrl,
+                    allowParentOverride: true,
+                    suppressDefaultClose: true,
+                    minimumDisplaySeconds: labData.AdIntroMinimumDisplaySeconds,
+                    close: function () {
+                        if (labData.ShowIntroUrl) {
+                            showDialog({
+                                url: labData.IntroUrl,
+                                allowParentOverride: true,
+                                minimumDisplaySeconds: labData.IntroMinimumDisplaySeconds
+                            });
+                        }
+                    }
+                });
+            } else if (labData.ShowIntroUrl) {
+                showDialog({
+                    allowParentOverride:true,
+                    url: labData.IntroUrl,
+                    minimumDisplaySeconds: labData.IntroMinimumDisplaySeconds
+                });
+            }
+            
+        });
+    }
+
+    function processVariables() {
+        $("span.variable").each(function () {
+            var $this = $(this);
+            var name = $this.attr("data-name");
+            if (name in labData.Variables) {
+                $this.html(labData.Variables[name]);
+            } else {
+                $this.text("<" + name + ">");
+            }
+        });
+        $("input.variableTextBox").each(function () {
+            var $this = $(this);
+            var name = $this.attr("data-name");
+            if (name in labData.Variables) {
+                $this.val(labData.Variables[name]);
+            } else {
+                $this.val("");
+            }
+        });
+        $("code").each(function () {
+            var originalHtml = this.originalHtml ? this.originalHtml : this.innerHTML;
+            var newHtml = originalHtml;
+            for (var name in labData.Variables) {
+                var val = labData.Variables[name];
+                var regex = new RegExp('<span class="nocode">&lt;' + name + '&gt;</span>', 'g');
+                newHtml = newHtml.replace(regex, val);
+            }
+            if (originalHtml != newHtml || originalHtml != this.innerHTML) {
+                this.originalHtml = originalHtml;
+                this.innerHTML = newHtml;
+            }
+        });
+    }
+
+    function setupTaskProgress() {
+
+        if (labData.LastCompletedTaskIndex != null || labData.EnableTaskProgressTracking) {
+            $allTasks = $("#instructionsContent").find(".task-list-item");
+        }
+
+        if (labData.LastCompletedTaskIndex != null && labData.LastCompletedTaskIndex >= 0) {
+            if (labData.LastCompletedTaskIndex < $allTasks.length) {
+                for (var i = 0; i <= labData.LastCompletedTaskIndex; i++) {
+                    $allTasks.eq(i).find("label.checkbox input[type='checkbox']").prop("checked", true);
+                }
+            }
+        }
+        if (labData.EnableTaskProgressTracking) {
+            $("#taskProgressBar").show();
+            $instructionsContent.addClass("withTaskProgress");
+            var numTasks = $allTasks.length;
+            var numTasksDone = 0;
+            if (labData.LastCompletedTaskIndex != null) {
+                numTasksDone = labData.LastCompletedTaskIndex + 1;
+            }
+            updateTaskProgressBar(numTasksDone, numTasks);
+        }
+
+    };
+
+    function setupKnowledgeExpanders($container) {
+        if (!$container) {
+            $container = $("#pages .page.selected");
+        }
+        if ($container.length === 0) return;
+        $container.find(".knowledge").each(function () {
+            var knowledge = this;
+            var $knowledge = $(this);
+            var $moreKnowledge = $knowledge.next();
+            if ($moreKnowledge.is(".moreKnowledge")) {
+                var maxHeight = 100;
+                var leeway = 100;
+                var diff = knowledge.scrollHeight - maxHeight;
+                if (diff < leeway) {
+                    $knowledge.removeClass("collapsed");
+                    $moreKnowledge.find("a").hide();
+                } else {
+                    //this is tall content, let's show the 'more' link
+                    $moreKnowledge.find("a").show();
+                    $knowledge.addClass("collapsed");
+                }
+            }
+        });
+    }
+
+    function displayCloudCredentials(cloudCredentials) {
+        var html = "";
+        var numCredentials = cloudCredentials.length;
+        for (var i = 0; i < numCredentials; i++) {
+            html += getCloudCredentialHtml(cloudCredentials[i]);
+        }
+        $("#cloudCredentials").html(html);
+    }
+
+    function getCloudCredentialHtml(cloudCredential) {
+        var html = '<div class="cloudCredential"><h2>' + cloudCredential.DisplayName + "</h2>";
+        if (cloudCredential.Message) {
+            html += cloudCredential.Message;
+        }
+        html += '<table class="credentials fields">';
+        if (cloudCredential.PortalUrl) {
+            html += '<tr><td class="fieldName">URL</td>';
+            html += '<td><a class="portalLink home" href="' + cloudCredential.PortalUrl + '">' + cloudCredential.PortalUrl + "</span></td>";
+            html += "</tr>";
+        }
+        var properties = cloudCredential.Properties;
+        var numProperties = properties.length;
+        for (var i = 0; i < numProperties; i++) {
+            var property = properties[i];
+            html += '<tr><td class="fieldName">' + property.Key + "</td>";
+            if (isChildClient) {
+                html += '<td><span class="typeText" title="Type Text">' + property.Value + "</span></td>";
+            } else {
+                html += '<td><span class="copyable" title="Copy to clipboard">' + property.Value + "</span></td>";
+            }            
+            html += "</tr>";
+        }
+        html += "</table></div>";
+        return html;
+    }
+
+    function displayCloudResources(cloudResourceGroups) {
+        var html = "";
+        var numResourceGroups = cloudResourceGroups.length;
+        for (var i = 0; i < numResourceGroups; i++) {
+            var cloudResourceGroup = cloudResourceGroups[i];
+            //if (cloudResourceGroup.ShowToStudent) {                
+                html += getCloudResourceGroupHtml(cloudResourceGroup);
+            //}
+        }        
+        $("#cloudResources").html(html);
+    }
+
+    function getCloudResourceGroupHtml(cloudResourceGroup) {
+        var html = '<div class="cloudResourceGroup"><h2>Resource Group<div class="description">' + cloudResourceGroup.ResourceGroupName + '</div></h2>';
+        var cloudResources = cloudResourceGroup.CloudResources;
+        var numCloudResources = cloudResources.length;
+        if (numCloudResources > 0) {
+            html += '<table class="fields">';
+            for (var i = 0; i < numCloudResources; i++) {
+                var cloudResource = cloudResources[i];
+                html += '<tr><td class="cloudResource" colspan="2">' + cloudResource.Name + "</td></tr>";
+                if (cloudResource.Description) {
+                    html += '<tr><td class="description" colspan="2">' + cloudResource.Description + "</td></tr>";
+                }
+                var parameters = cloudResource.Parameters;
+                var numParameters = parameters.length;
+                if (numParameters > 0) {                    
+                    for (var j = 0; j < numParameters; j++) {
+                        var parameter = parameters[j];
+                        if (!parameter.ShowToStudent) continue;
+                        html += '<tr><td class="fieldName">' + parameter.DisplayName + "</td>";
+                        var parameterValue = processCloudResourceParameterValue(parameter.Value);
+                        if (isChildClient) {
+                            html += '<td><span class="typeText" title="Type Text">' + parameterValue + "</span></td>";
+                        } else {
+                            html += '<td><span class="copyable" title="Copy to clipboard">' + parameterValue + "</span></td>";
+                        }                        
+                        html += "</tr>";
+                    }
+                }
+                html += '<tr><td colspan="2">&nbsp;</td></tr>';
+            }           
+            html += "</table>";
+        }
+        return html;
+    }
+
+    function processCloudResourceParameterValue(val) {        
+        var processedValue = val;        
+        if (labData.ReplacementTokens && labData.ReplacementTokens.length > 0) {
+            for (var z = 0, numTokens = labData.ReplacementTokens.length; z < numTokens; z++) {
+                var token = labData.ReplacementTokens[z];                
+                processedValue = replaceAll(processedValue, token.Token, token.Replacement);
+            }
+        }
+        return processedValue;
+    }
+
+    function escapeRegExp(str) {
+        return str.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1");
+    }
+
+    function replaceAll(str, find, replace) {
+        if (replace == null) replace = "";
+        return str.replace(new RegExp(escapeRegExp(find), 'ig'), replace);
+    }
+
+    function displayExternalResources(resources) {
+        var externalResources = [];
+        for (var i = 0; i < labData.Resources.length; i++) {
+            var resource = labData.Resources[i];
+            if (!resource.IsManual) {
+                externalResources.push(resource);
+            }
+        }
+        if (externalResources.length > 0) {
+            var html = "<ul>";
+            var numResources = externalResources.length;
+            for (var i = 0; i < numResources; i++) {
+                var resource = externalResources[i];
+                html += "<li><a href='" + resource.Url + "' target='top'>" + resource.Name + "</a>";
+                if (resource.Description) {
+                    html += "<div class='description'>" + resource.Description + "</div>";
+                }
+                html += "</li>";
+            }
+            html += "</ul>";
+            $("#externalResources").html(html);
+        }
+    }
+
+    function appendExternalManualPages() {
+        var externalManuals = [];
+        for (var i = 0; i < labData.Resources.length; i++) {
+            var resource = labData.Resources[i];
+            if (resource.IsManual) {
+                externalManuals.push(resource);
+            }
+        }
+        if (externalManuals && externalManuals.length > 0) {
+            $("#zoomWrapper").hide(); //zoom not compatible with all external content.
+            enableZoom = false;
+            var numPages = $("#pages .page").length;
+            for (var i = 0; i < externalManuals.length; i++) {
+                var resource = externalManuals[i];
+                $("#pages").append("<div class='page externalManualWrapper' id='page" + numPages + "'><iframe class='externalManual' src='" + resource.Url + "'></iframe></div>");
+                numPages += 1;
+            }
+        }
+    }
+
+    function displayInstructions(instructions) {
+        if (instructions) {
+            instructionsProcessor.process(instructions, "pages", false, contentRoot, labData.ReplacementTokens, function ($page) {
+                setupContentEventHandlers($page); //consider moving this to document level "on" handlers
+            },
+            labData.Activities);
+        }
+        appendExternalManualPages();
+        configureInstructionsPaging();
+    }
+
+    function showFullScreenMessage(options) {
+        if (isChildClient) {
+            window.parent.showFullScreenMessage(options);
+            return;
+        }
+        if (fullScreenMessageShown) {
+            $("#fullScreenMessage").show();
+        } else {
+            $("#fullScreenMessage").fadeIn(function () {
+                $labClient.show(); //lab client is initially hidden, this ensures it is visible underneath the message 
+            });
+        }
+        fullScreenMessageShown = true;
+        if (options) {
+            $("#fullScreenMessageTitle").html(options.title ? options.title : "");
+            $("#fullScreenMessageText").html(options.message ? options.message : "");
+            if (options.showLoadingImage) {
+                $("#fullScreenMessage").addClass("withLoadingImage");
+            } else {
+                $("#fullScreenMessage").removeClass("withLoadingImage");
+            }
+            var $buttonWrapper = $("#fullScreenMessageButtonWrapper");
+            if (options.buttons || (options.showCloseWindowButton && window.opener)) {
+                $buttonWrapper.show();
+                if (options.showCloseWindowButton && window.opener) {
+                    $("#closeWindow").show();
+                    if (options.buttons) {
+                        $("#closeWindow").removeClass("primary");
+                    } else {
+                        $("#closeWindow").addClass("primary");
+                    }
+                } else {
+                    $("#closeWindow").hide();
+                }
+                var $buttons = $("#fullScreenMessageButtons");
+                $buttons.html("");
+                if (options.buttons) {
+                    for (var i = 0; i < options.buttons.length; i++) {
+                        var button = options.buttons[i];
+                        var $button = $('<input type="button" value="' + button.text + '" />');
+                        if (button.click) {
+                            $button.click(button.click);
+                        }
+                        if (button.primary) {
+                            $button.addClass("primary");
+                        }
+                        $buttons.append($button);
+                    }
+                }
+            } else {
+                $buttonWrapper.hide();
+            }
+        }      
+    }
+
+    function hideFullScreenMessage(complete) {
+        if (isChildClient) {
+            window.parent.hideFullScreenMessage();          
+            if (complete != null && typeof complete === "function") {
+                complete();
+            }
+        } else {
+            $("#fullScreenMessage").fadeOut(function () {
+                if (complete != null && typeof complete === "function") {
+                    complete();
+                }
+            });
+        }
+        fullScreenMessageShown = false;
+    }
+
+    function truncate(input, maxLength, useWordBoundary) {
+        if (input.length <= maxLength) { return input; }
+        var subString = input.substr(0, maxLength - 1);
+        return (useWordBoundary
+            ? subString.substr(0, subString.lastIndexOf(' '))
+            : subString) + "...";
+    };
+
+    function configureInstructionsPaging() {
+        var numPages = $(".page").length;
+        if (pageIndex > numPages - 1) { //in case pages have changed and the page the user was on is no longer available.
+            pageIndex = 0;
+        }
+        if (pageIndex === 0) {
+            $("#previous").addClass("disabled");
+        } else {
+            $("#previous").removeClass("disabled");
+        }
+        if (numPages <= pageIndex + 1) {
+            if (labData.IsExam) {
+                $("#next").text("Submit");
+            } else if ($("#exit").length > 0) {
+                $("#next").text("End");
+            } else {
+                $("#next").addClass("disabled");                
+            }
+        } else {
+            var nextLabel = "Next";
+            var pageWidth = $(window).width();
+            if (pageWidth > 325) {
+                var $nextPage = $("#page" + pageIndex + 1);
+                var $nextPageTitle = $("#page" + (pageIndex + 1) + " > :first-child");
+                if ($nextPageTitle.length > 0) {
+                    if ($nextPageTitle.is("h1")) {
+                        //todo:set truncate to longer length if the page width exceeds a certain amount                  
+                        var maxLength = pageWidth >= 450 ? 40 : (pageWidth >= 400 ? 33 : 28);
+                        nextLabel += ": " + truncate($nextPageTitle.text(), maxLength, true);
+                    }
+                }
+            }
+            $("#next").text(nextLabel).removeClass("disabled");
+        }
+        $(".page").removeClass("selected");
+        var $currentPage = $("#page" + pageIndex);
+        $currentPage.addClass("selected");
+
+        if ($currentPage.find("iframe.externalManual").length > 0) {
+            $instructionsContent.addClass("externalManual");
+        } else {
+            $instructionsContent.removeClass("externalManual");
+        }
+
+        setupKnowledgeExpanders($currentPage);
+        if (numPages <= 1 && !labData.IsExam) {
+            $instructionsNavigation.hide();
+            $instructionsContent.removeClass("withNavigation");
+        } else {
+            $instructionsNavigation.show();
+            $instructionsContent.addClass("withNavigation");
+        }
+    }
+
+    function selectTab($tabHeading) {
+        $(".tabHeading").removeClass("selected");
+        $tabHeading.addClass("selected");
+        $(".tab").hide();
+        var $tab = $("#" + $tabHeading.attr("data-target"));
+        $tab.show();
+        $tab.addClass("selected");
+    }
+
+    function showClickFeedbackMessage(text, x, y, duration) {
+        var $message = $("<div class='clickFeedbackMessage noselect'>" + text + "</div>");
+        $message.appendTo($("body")).hide();
+        $message.css({ left: x, top: y });
+        $message.fadeIn("fast");
+        window.setTimeout(function () {
+            $message.fadeOut("fast", function () { $message.remove(); });
+        }, duration);
+    }
+
+    function showRightOrientedClickFeedbackMessage(text, x, y, duration) {
+        var $message = $("<div class='clickFeedbackMessage noselect'>" + text + "</div>");
+        $message.appendTo($("body")).hide();
+        $message.css({ right: x, top: y });
+        $message.fadeIn("fast");
+        window.setTimeout(function () {
+            $message.fadeOut("fast", function () { $message.remove(); });
+        }, duration);
+    }
+
+    function endLab(markComplete) {
+        showFullScreenMessage({ title: "Ending Lab", message: "", showLoadingImage: true});
+        var url = (markComplete ? "/Console/SetComplete/" : "/LabInstance/Cancel/") + model.id;
+        $.ajax({
+            type: "POST",
+            dataType: "json",
+            data: {},
+            cache: false,
+            url: url
+        }).always(function (response) {
+            labIsComplete();
+            gotoPostLabActivity("Lab Closed", "You can now close this window");
+        });
+    }
+
+    function saveLab() {
+        showFullScreenMessage({ title: (labData.IsExam ? "Your exam is saving" : "Your lab is saving"), message: "", showLoadingImage: true });
+        var url = "/LabInstance/Save/" + model.id;
+        $.ajax({
+            type: "POST",
+            dataType: "json",
+            data: {},
+            cache: false,
+            url: url
+        }).always(function (response) {
+            if (!response || !response.Success) {
+                var errorMessage = response && response.Error ? response.Error : "Sorry an error occurred";
+                showFullScreenMessage({ title: ":-(", message: errorMessage, buttons: [{ text: "OK", click: hideFullScreenMessage, primary:true }]});
+                return;
+            }            
+            if (response.IsAnonymousSave) {
+                showFullScreenMessageForAnonymousSave(response.ResumeUrl, response.QrCode);
+            } else {
+                var expiration = new Date();
+                expiration.setDate(expiration.getDate() + labData.MaxSaveDays);
+                var title = labData.IsExam ? "Your exam is saved" : "Your lab is saved";
+                var message = labData.IsExam ? "Your exam has been saved and will be available for you to resume for the next {0} days. It will expire {1}.".format(labData.MaxSaveDays, expiration.toLocaleString()) : "Your lab has been saved and will be available for you to resume for the next {0} days. It will expire {1}.".format(labData.MaxSaveDays, expiration.toLocaleString());
+                if (labData.PostLabUrl) {
+                    if (isChildClient) {
+                        window.parent.location = labData.PostLabUrl;
+                    } else {
+                        window.location = labData.PostLabUrl;
+                    }
+                } else {
+                    showFullScreenMessage({ title: title, message: message, showCloseWindowButton: true });
+                }  
+            }
+            labIsComplete();
+        });
+    }
+
+    function showFullScreenMessageForAnonymousSave(resumeUrl, qrCode) {
+        var expiration = new Date();
+        expiration.setDate(expiration.getDate() + labData.MaxSaveDays);
+        var text = "Your lab has been saved and will be available for you to resume for the next {0} days. It will expire {1}.".format(labData.MaxSaveDays, expiration.toLocaleString());
+        text += "<div>Your lab can be resumed here:</div><div style='font-size:125%; margin:25px 0;'>" + resumeUrl + "</div>";
+        text += "<div style='margin-top:15px'>You can e-mail this link to yourself.</div>";
+        text += "<div style='margin-top:15px'><input id='anonymousResumeEmail' type='text' style='width:300px;' maxlength='256' placeholder='E-mail Address' /> <input type='button' id='sendAnonymousResumeEmail' value='Send'/> <span id='sendAnonymousResumeEmailMessage' style='margin-left:10px;'></span></div>"
+        if (qrCode) {
+            text += "<div style='margin-top:15px'>Or you can use this QR code to email the link to yourself from your smart phone. You may need to install a QR code scanner app on your device.</div>";
+            text += "<div style='margin-top:15px'><img src='data:image/png;base64," + qrCode + "' /></div>";
+        }
+        if (labData.PostLabUrl) {
+            showFullScreenMessage({
+                title: "Your lab is saved",
+                message: text,
+                buttons: [{
+                    text: "OK",
+                    primary: true,
+                    click: function () {
+                        if (isChildClient) {
+                            window.parent.location = labData.PostLabUrl;
+                        } else {
+                            window.location = labData.PostLabUrl;
+                        }
+                    }
+                }]         
+            });
+        } else {
+            text += "<div style= 'margin-top:20px; border-top:solid 1px #ccc; padding-top:20px;' > Get here by mistake? You can resume right away...</div >";
+            showFullScreenMessage({
+                title: "Your lab is saved",
+                message: text,
+                showCloseWindowButton: true,
+                buttons: [{
+                    text: "Resume Lab",
+                    click: resume
+                }]
+            });
+        }
+        var $anonymousResumeEmail = isChildClient ? $(parent.getElementById("anonymousResumeEmail")) : $("#anonymousResumeEmail");
+        var $sendAnonymousResumeEmail = isChildClient ? $(parent.getElementById("sendAnonymousResumeEmail")) : $("#sendAnonymousResumeEmail");
+        var $sendAnonymousResumeEmailMessage = isChildClient ? $(parent.getElementById("sendAnonymousResumeEmailMessage")) : $("#sendAnonymousResumeEmailMessage");
+
+        $anonymousResumeEmail.focus();
+        var sending = false;
+        $sendAnonymousResumeEmail.click(function () {
+            if (sending) return;
+            var email = $anonymousResumeEmail.val();
+            var valid = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(email);
+            if (!valid) {
+                $sendAnonymousResumeEmailMessage.html("Please enter a valid email address");
+                return;
+            }
+            sending = true;
+            $sendAnonymousResumeEmail.prop("disabled", true);
+            $sendAnonymousResumeEmailMessage.html("Sending...");
+            $.ajax({
+                url: "/Console/SendAnonyousResumeEmail/" + model.id,
+                type: "POST",
+                dataType: 'json',
+                data: { email: email },
+                cache: false
+            }).always(function (response) {
+                sending = false;
+                $sendAnonymousResumeEmail.prop("disabled", false);
+                if (response && response.Success) {
+                    $sendAnonymousResumeEmailMessage.html("An email has been sent to " + email);
+                    $anonymousResumeEmail.val("").focus();
+                } else {
+                    $sendAnonymousResumeEmailMessage.html(response && response.Error ? response.Error : "Sorry an error occurred");
+                }
+            });
+        });
+        $anonymousResumeEmail.keyup(function (event) {
+            if (event.keyCode === 13) {
+                $sendAnonymousResumeEmail.click();
+            }
+        });
+    }
+    
+    function closePortalWindow() {
+        if (isChildClient) return;
+        try {
+            var portalWindow = window.open("", "cloudPortal");
+            portalWindow.close();            
+        } catch(e) {
+            
+        }        
+    }
+
+    function closeWindow() {
+        try {
+            window.close();
+        } catch(e) {
+            //
+        }
+    }
+
+    function gotoPostLabActivity(title, message) {
+        if (labData.EvaluationId) {
+            showFullScreenMessage({ title: "Preparing Evaluation", showLoadingImage: true });
+            window.setTimeout(function () {
+                if (isChildClient) {
+                    window.parent.location = "/Evaluation/Submit/" + model.key;
+                } else {
+                    window.location = "/Evaluation/Submit/" + model.key;
+                }                
+            }, 500);
+        } else if (labData.PostLabUrl) {
+            if (isChildClient) {
+                window.parent.location = labData.PostLabUrl;
+            } else {
+                window.location = labData.PostLabUrl;
+            }            
+        } else {
+            showFullScreenMessage({ title: title, message: message, showCloseWindowButton: true });
+        }        
+    }
+    
+    function setupWindowEventHandlers() {
+        $(window).resize(function () {
+            configureInstructionsPaging();
+            var $dialog = $("#instructionsDialog");
+            if ($dialog.length > 0) {
+                setupKnowledgeExpanders($dialog);
+            }
+        }).unload(function () {            
+            closeAllChildWindows();
+            if (isChildClient) {
+                window.parent.childWindowClosing();
+            }
+        });
+        window.onbeforeunload = function () {
+            if (complete === true || model.monitor || disableNavigationWarning) return;
+            return "Your lab environment is still running. To exit, please make a choice from the Exit menu.";
+        };
+    }
+
+    function updateTimer(minutesRemaining) {        
+        if (complete || labData.CompletionStatus === 60) { return; }
+        if (minutesRemaining <= 0) {
+            handleTimeExpired();
+        } else {
+            var m = minutesRemaining % 60;
+            var h = Math.floor((minutesRemaining) / 60);
+            if (h >= 1) {
+                if (m > 0) {
+                    $("#timer").html("{0} Hr {1} Min Remaining".format(h, m));
+                } else {
+                    if (h === 1) {
+                        $("#timer").html("1 Hour Remaining");
+                    } else {
+                        $("#timer").html("{0} Hours Remaining".format(h));
+                    }
+                }
+            } else {
+                if (m === 1) {
+                    $("#timer").html("1 Minute Remaining");
+                } else {
+                    $("#timer").html("{0} Minutes Remaining".format(m));
+                }
+            }
+            if (minutesRemaining <= 5) {
+                $("#timerWrapper").addClass("expiring");
+            } else {
+                $("#timerWrapper").removeClass("expiring");
+            }
+            if (minutesRemaining <= 10) {
+                $("#timer").removeClass("critical");
+                $("#timer").addClass("warning");
+                timeWarningShown = true;
+            } else if (minutesRemaining <= 5) {
+                $("#timer").removeClass("warning");
+                $("#timer").addClass("critical");
+                timeWarningShown = true;
+            } else if (timeWarningShown) {
+                $("#timer").removeClass("critical");
+                $("#timer").removeClass("warning");
+            }
+            if (labData.AllowTimeExtensions && minutesRemaining <= labData.PromptForExtensionMinutes && !extensionPromptHasShown && $labClient.is(":visible")) {
+                showTimeExtensionNotification();
+            }
+        }
+    }
+
+    function waitForJob(job, pollInterval, onComplete, onError, onCancelled) {
+        switch (job.Status) {
+        case 0:
+            window.setTimeout(function () {
+                $.ajax({
+                    url: "/Job/" + job.Id,
+                    type: "POST",
+                    dataType: "json",
+                    data: {},
+                    cache: false
+                }).always(function (response) {
+                    if (response && response.Success) {
+                        waitForJob(response.Job, pollInterval, onComplete, onError, onCancelled);
+                    } else {
+                        if (onError) onError(response);
+                    }
+                });
+            }, pollInterval);
+            break;
+        case 10:
+            if (onComplete) onComplete(JSON.parse(job.Data));
+            break;
+        case 20:
+            if (onCancelled) onCancelled(job);
+            break;
+        case 30:
+            if (onError) onError(job);
+            break;
+        }
+    }
+
+    function setPauseServerSync(val) {
+        pauseServerSync = val;
+        if (isChildClient) {
+            window.parent.pauseServerSync(val);
+        }
+    }
+
+    function submitForScoring() {
+        closePortalWindow();
+        showFullScreenMessage({ title: "Grading", showLoadingImage: true });
+
+        var handleScoringError = function (response) {
+            alert(response && response.Error ? response.Error : "Sorry an error occurred");
+            hideFullScreenMessage();
+            setPauseServerSync(false);
+        };
+
+        setPauseServerSync(true);
+
+        $.ajax({
+            url: "/Console/SubmitForScoring/" + model.id,
+            type: "POST",
+            dataType: "json",
+            data: {},
+            cache: false
+        }).always(function (response) {
+            if (response && response.Success) {
+                waitForJob(response.Job, 2000,
+                    function (response) {
+                        setPauseServerSync(false);
+                        labIsComplete();
+                        //not currently enabled to handle evals
+                        if (response.ShowResult) {
+                            showFullScreenMessage({
+                                title: response.Passed ? "Congratulations, you passed!" : "Sorry, you did not pass.",
+                                message: "Your score: {0} / {1}".format(response.Score, response.PossibleScore),
+                                showCloseWindowButton:true });
+                        } else {
+                            showFullScreenMessage({
+                                title: "Submitted For Grading",
+                                message: "Your environment has been successfully submitted for grading. You can now close this browser window.",
+                                showCloseWindowButton: true
+                            });
+                        }
+                    },
+                    handleScoringError,
+                    handleScoringError
+                );
+            } else {
+                handleScoringError(response);
+            }
+        });
+    }
+
+    function showTimeExtensionNotification() {
+        extensionPromptHasShown = true;
+        var content = "You now have less than {0} minutes left in your lab. Would you like to extend your lab by {1} minutes?".format(labData.PromptForExtensionMinutes, labData.ExtensionMinutes) + "<div>";
+        var notification = {content: content, buttons:[
+            {
+                text: "Yes",
+                primary: true,
+                closeNotification: true,
+                click: function() {
+                    $.ajax({
+                        type: "POST",
+                        dataType: "json",
+                        data: {},
+                        cache: false,
+                        url: "/Console/Extend/" + model.id
+                    }).always(function(response) {
+                        if (!response || !response.Success) {
+                            showNotification({ content: response && response.Error ? response.Error : "Sorry, an error occurred. Your lab time was not extended." });
+                            return;
+                        }
+                        extensionPromptHasShown = false;
+                        showNotification({ content: "Your lab has been extended by {0} minutes.".format(labData.ExtensionMinutes), autocloseTimeout:5000 });
+                        updateTimer(response.MinutesRemaining);
+                    });
+                }
+            },
+            {
+                text: "No",
+                closeNotification:true
+            }
+        ]};
+        showNotification(notification);
+    }
+
+    function handleTimeExpired() {
+        $("#timer").html("");
+        if (labData.IsExam) {
+            submitForScoring();
+        } else {
+            showFullScreenMessage({ title: "Closing Lab", showLoadingImage: true });
+            $.ajax({
+                type: "POST",
+                dataType: "json",
+                data: {},
+                cache: false,
+                url: "/Console/TimeExpired/" + model.id
+            }).always(function (response) {
+                if (response.Saved) {
+                    showFullScreenMessage({
+                        title: labData.IsExam ? "Saving Exam" : "Saving Lab",
+                        message: labData.IsExam ? "Your exam is being saved." : "Your lab is being saved.",
+                        showLoadingImage: true
+                    });
+                } else {
+                    labIsComplete();
+                    gotoPostLabActivity("Lab Closed", "Your lab time has expired. ");
+                }
+            });
+        }
+    }
+
+    function closeAllChildWindows() {
+        for (var i = 0; i < childWindows.length; i++) {
+            try {
+                childWindows[i].close();
+            } catch (e) {
+            }
+        }
+        childWindows = [];
+    }
+    
+    function labIsComplete() {        
+        if (complete === true) return;
+        complete = true;
+        closeAllChildWindows();
+        closePortalWindow();
+        if (window.opener) {
+            try {
+                window.opener.postMessage("labDone", "*");
+            } catch (e) {
+                //
+            }
+        }
+        try {
+            if (window.parent && window.parent.labIsComplete) {
+                window.parent.labIsComplete();
+            }
+        } catch (e) {
+
+        }
+    }
+
+    function resume() {
+        closePortalWindow();
+        var url = "/LabInstance/ResumeWithKey/?key=" + model.key;
+        if (isChildClient) {
+            window.parent.location = url;
+        } else {
+            window.location = url;
+        }        
+    }
+
+    var syncInProgress = false;
+
+    function synchronizeWithServer() {
+        if (complete || pauseServerSync || syncInProgress) {
+            return;
+        }
+        syncInProgress = true;
+        console.log("sync starting")
+        var url = "/Console/CloudClientSync/" + model.id;
+        if (lastUnsyncedActivity) {
+            var la = new Date().valueOf() - lastUnsyncedActivity;
+            url += "?la=" + la;
+            lastUnsyncedActivity = null;
+        }
+        $.ajax({
+            type: "POST",
+            dataType: "json",
+            data: {},
+            cache: false,
+            url: url
+        }).always(function (response) {
+            syncInProgress = false;
+            console.log("sync complete")
+            if (!response || !response.Success || complete) {
+                return;
+            }
+            if (response.AccountDisabled) {
+                labIsComplete();
+                showFullScreenMessage({ title: "Access Denied", message: "Your account has been disabled. If you believe this to be in error, please contact support.", showCloseWindowButton: true });
+                return;
+            }
+            labData.State = response.State;
+            switch (response.State) {
+            case 0: //off
+            case 110: //tearing down
+                labIsComplete();
+                showFullScreenMessage({ title: "Lab Closed", message: "Your lab has been closed.", showCloseWindowButton: true });
+                return;
+            case 40: //running
+                if (remoteStateChangeInProgress) {
+                    remoteStateChangeInProgress = false;
+                    hideFullScreenMessage();
+                }
+                break;
+            case 50: //saving
+                showFullScreenMessage({
+                    title: labData.IsExam ? "Saving Exam" : "Saving Lab",
+                    message: labData.IsExam ? "Your exam is being saved." : "Your lab is being saved.",
+                    showLoadingImage: true
+                });
+                break;
+            case 60: //saved
+            case 150: //moving while saved
+                    labIsComplete();
+                    if (response.IsAnonymousSave) {
+                        showFullScreenMessageForAnonymousSave(response.ResumeUrl, response.QrCode);
+                    } else {
+                        var expiration = new Date();
+                        expiration.setDate(expiration.getDate() + labData.MaxSaveDays);
+                        showFullScreenMessage({ title: "Lab Saved", message: "Your lab has been saved and will be available for you to resume for the next {0} days. It will expire {1}.".format(labData.MaxSaveDays, expiration.toLocaleString()), showCloseWindowButton: true, buttons: [{ text: "Resume Lab", primary: true, click: resume }] });  
+                    }               
+                return;
+            case 70: //resuming
+                if (!remoteStateChangeInProgress) {
+                    remoteStateChangeInProgress = true;
+                    showFullScreenMessage({
+                        title: "Resuming",
+                        message: "This can take several minutes.",
+                        showLoadingImage: true
+                    });
+                }
+                break;
+            case 80: //creating snapshot
+            case 90: //applying snapshot
+            case 100: //saving diff disks
+            case 120: //cloning
+            case 130: //creating as clone
+            case 140: //Moving
+            case 160: //storing start state
+                //NA
+                break;
+            }
+            updateTimer(response.Min);
+            if (response.Notifications != null && response.Notifications.length > 0) {
+                var newNotifications = response.Notifications;
+                var numNewNotifications = newNotifications.length;
+                for (var i = 0; i < numNewNotifications; i++) {
+                    var notification = newNotifications[i];
+                    if (i === 0) {
+                        showNotification({ id: notification.Id, content: notification.Text, created: notification.Created, persistent:true });
+                    } else {
+                        showNotificationWithDelay({ id: notification.Id, content: notification.Text, created: notification.Created, persistent:true }, i * 1000);
+                    }
+                }                
+            }
+            if (response.Variables != null) {
+                labData.Variables = jobResponse.Variables;
+                processVariables();
+            }
+        });
+    }
+
+    function showNotificationWithDelay(notification, delay) {
+        window.setTimeout(function() {
+            showNotification(notification);
+        }, delay);
+    }
+    
+    function playNotificationSound() {
+        var notificationAudio = document.createElement("audio");
+        document.body.appendChild(notificationAudio);    
+        notificationAudio.setAttribute("autoplay", true);
+        notificationAudio.setAttribute("src", "/images/notification.mp3");   
+        notificationAudio.addEventListener("ended", function () {
+            notificationAudio.parentNode.removeChild(notificationAudio);
+        });
+    }
+
+    function showNotification(notification) {
+        if (!notification) return;
+        if (!notification.content && !notification.buttons) return;
+        if (notification.persistent) {
+            $("#notificationsButton").addClass("active");
+        }
+        var $container = $("#notificationContainer");
+        if (notification.id) {
+            $container.find(".notification[data-id='" + notification.id + "']").slideUp("fast", function() { $(this).remove(); });
+        }
+        var $notification = $("<div class='notification' data-id='" + notification.id + "'><div class='closeNotification'></div><div class='notificationContent'></div></div>");
+        var close = function() {
+            $notification.fadeOut("fast", function() {
+                $notification.show().css({ visibility: "hidden" });
+                $notification.animate({ height: 0, padding: 0, marginTop: 0 }, "fast", function() {
+                    $notification.remove();
+                });
+            });
+        };
+        $notification.find(".closeNotification").click(close);
+        var $notificationContent = $notification.find(".notificationContent");
+        $notificationContent.append(notification.content);
+        if (notification.buttons && notification.buttons.length > 0) {
+            var $buttons = $("<div class='notificationButtonWrapper'></div>");
+            var numButtons = notification.buttons.length;
+            var buttons = notification.buttons;
+            for (var i = 0; i < numButtons; i++) {
+                var button = buttons[i];
+                if (!button.text) return;
+                var $button = $("<input type='button' value='" + button.text + "' />");
+                if (button.primary) {
+                    $button.addClass("primary");
+                }
+                if (button.click) {
+                    $button.click(button.click);
+                }
+                if (button.closeNotification) {
+                    $button.click(close);
+                }
+                $buttons.append($button);
+            }
+            $notificationContent.append($buttons);
+        }        
+
+        $container.append($notification);
+        var width = $notification.outerWidth();
+        var height = $notification.outerHeight();
+        var marginTop = parseInt($notification.css("marginTop"));
+        $notification.hide();
+        var $placeHolder = $("<div></div>");
+        $placeHolder.css({ "visibility": "hidden", height: 0, width: 0 });
+        $container.append($placeHolder);
+        $placeHolder.animate({ height: height + marginTop, width: width }, "fast", function() {
+            $placeHolder.remove();
+            $notification.css({ "visibility": "hidden" }).show();
+            var $slideInClone = $notification.clone(false);
+            $slideInClone.css({ position: "absolute", bottom: 0, right: -width - 32, "visibility": "visible" });
+            $container.append($slideInClone);
+            $slideInClone.animate({ right: 0 }, "fast", function () {
+                $notification.css({ "visibility": "visible" });
+                $slideInClone.remove();
+                $notification.show();
+            });            
+        });
+        
+        playNotificationSound();
+
+        if (notification.autocloseTimeout) {
+            window.setTimeout(function () {
+                close();
+            }, notification.autocloseTimeout);
+        }
+
+        var $notificationsDialog = $("#notificationsDialog");
+        if ($notificationsDialog.length > 0 && notification.id) {
+            $notificationsDialog.find(".listedNotification[data-id='" + notification.id + "']").slideUp("fast", function () { $(this).remove(); });
+            var $listedNotification = $("<div data-id='" + notification.id + "' class='listedNotification'><div class='listedNotificationDate'>" + notification.created + "</div><div class='listedNotificationBody'>" + notification.content + "</div></div>");
+            $notificationsDialog.prepend($listedNotification);
+            $listedNotification.css({ "visibility": "hidden", "display": "none" }).slideDown("fast", function() {
+                $listedNotification.css({ "visibility": "visible", "display": "none" }).fadeIn("fast");
+            });
+        }
+
+    }
+    
+    function writeCookie(name, value, days) {
+        var cookie = name + "=" + value;
+        if (days) {
+            var date = new Date();
+            date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+            cookie += "; expires=" + date.toGMTString();
+        }
+        cookie += "; path=/";
+        document.cookie = cookie;
+    }
+
+    function readCookie(name) {
+        var nameEq = name + "=";
+        var ca = document.cookie.split(";");
+        for (var i = 0; i < ca.length; i++) {
+            var c = ca[i];
+            while (c.charAt(0) === " ") c = c.substring(1, c.length);
+            if (c.indexOf(nameEq) === 0) return c.substring(nameEq.length, c.length);
+        }
+        return null;
+    }
+
+    function copyableClicked(element) {
+        var $element = $(element);
+        var text = $element.text();
+        $("#copyInput").val(text).select();
+        var offset = $element.offset();
+        var x = offset.left;
+        var y = offset.top - 40;
+        try {
+            var successful = document.execCommand("copy");
+            if (successful) {                
+                showClickFeedbackMessage("Copied to clipboard", x, y, 2000);
+            } else {
+                showClickFeedbackMessage("Copying was unsuccessful", x, y, 2000);
+            }
+        } catch (err) {
+            showClickFeedbackMessage("Copying was unsuccessful", x, y, 2000);
+            console.log("Unable to copy. " + err);
+        }
+    }
+
+    function typeTextClicked(element, canUseVmClipboard) {
+        var $element = $(element);
+        var text = $element.text();
+        var offset = $element.offset();
+        var x = offset.left;
+        var y = offset.top - 40;
+        try {
+            if (canUseVmClipboard) {
+                text = text.replace(/[\r]/g, '\n');
+                text = text.replace(/[\n]/g, '\r\n');
+            }
+            window.parent.typeText(text, canUseVmClipboard);
+            var message = "Typing in active machine";
+            if ($element.is(".copyable")) {
+                y -= 40;
+            }
+            showClickFeedbackMessage(message, x, y, 2000);
+        } catch (err) {
+            showClickFeedbackMessage("Typing was unsuccessful", x, y, 2000);
+            console.log("Unable to type in active machine. " + err);
+        }
+    }
+
+    function showDialog(options) {
+        if (!options) return;
+
+        if (isChildClient && options.allowParentOverride) {
+            window.parent.showDialog(options);
+            return;
+        }
+
+        var $dialog = $("#modalDialog");
+        var isUpdatedContent = false;
+        if ($dialog.length > 0) {
+            $dialog.find(".dialogContent").html("");
+            $dialog.find(".dialogButtons").html("");
+            isUpdatedContent = true;
+        } else {
+            var $dialog = $('<div id="modalDialog" class="dialog"><div class="dialogMask"></div><div class="dialogBox"><div class="dialogCloseButton"></div><div class="dialogTitle"></div><div class="dialogContent"></div><div class="dialogButtons"></div></div></div>');
+        }
+        var $dialogBox = $dialog.find(".dialogBox");
+        var close = function () {
+            if (options.suppressDefaultClose && options.close) {
+                options.close();
+            } else {
+                var h = $dialogBox.outerHeight();
+                var offset = $dialogBox.offset();
+                $dialogBox.css("marginTop", 0).animate({ marginTop: -h - offset.top }, 300);
+                $dialog.delay(200).fadeOut("fast", function () {
+                    $dialog.remove();
+                    if (options.close) {
+                        options.close();
+                    }
+                });
+            }
+        }
+        $dialog.find(".dialogCloseButton").click(close);
+
+        if (options.minimumDisplaySeconds > 0) {
+            var $closeButton = $dialog.find(".dialogCloseButton").hide();
+            var $countDown = $("<div class='dialogCloseCountDown'>You can close this in " + options.minimumDisplaySeconds + " seconds...</div>").insertAfter($closeButton);
+            var secondsSpent = 0;
+            var closeDialogInterval = window.setInterval(function () {
+                secondsSpent += 1;
+                $countDown.html("You can close this in " + (options.minimumDisplaySeconds - secondsSpent) + " seconds...</div>");
+                if (secondsSpent >= options.minimumDisplaySeconds) {
+                    window.clearInterval(closeDialogInterval);
+                    $countDown.hide();
+                    $dialog.find(".dialogCloseButton").show();
+                }
+            }, 1000);
+        }
+
+        if (options.title) {
+            $dialog.find(".dialogTitle").html(options.title).show();
+        } else {
+            $dialog.find(".dialogTitle").hide();
+            $dialog.addClass("noTitle");
+        }
+        if (options.content) {
+            $dialog.find(".dialogContent").removeClass("noScroll").append(options.content);
+        } else if (options.url) {
+            var urlLower = options.url.toLowerCase();
+            if (urlLower.indexOf(".mp4") !== -1) {
+                $dialog.find(".dialogContent").removeClass("noScroll").append('<video src="' + options.url + '" controls autoplay></video>');
+            } else if (urlLower.indexOf(".png") !== -1 || urlLower.indexOf(".jpg") !== -1 || urlLower.indexOf(".jpeg") !== -1 || urlLower.indexOf(".gif") !== -1) {
+                $dialog.find(".dialogContent").removeClass("noScroll").append('<img src="' + options.url + '" controls></iframe>');
+            } else if (options.isInstructions || urlLower.indexOf(".md") !== -1) {
+                $dialog.find(".dialogContent").removeClass("noScroll").append('<div id="instructionsDialog"></div>');
+                window.setTimeout(function () {
+                    instructionsProcessor.processUrl(options.url, "instructionsDialog");
+                    if (options.url.indexOf("#") >= 0) {
+                        window.setTimeout(function () {
+                            var hash = options.url.substr(options.url.indexOf("#"));
+                            var $element = $("#instructionsDialog " + hash);
+                            if ($element.length > 0) {
+                                $dialog.find(".dialogContent").scrollTop($element.position().top);
+                            }
+                        }, 400); //leave time for the content to layout... the dialog takes 400ms to animate anyway, which should be sufficient.
+                    }
+                }, 1);
+            } else {
+                $dialog.find(".dialogContent").addClass("noScroll").append('<iframe id="contentDialogIFrame" src="' + options.url + '" style="width:100%;height:100%;border:none;" allowfullscreen></iframe>');
+            }
+        } else {
+            $dialog.find(".dialogContent").hide();
+        }
+        if (options.buttons && options.buttons.length > 0) {
+            $dialog.addClass("hasButtons");
+            var $dialogButtons = $dialog.find(".dialogButtons");
+            var numButtons = options.buttons.length;
+            for (var i = 0; i < numButtons; i++) {
+                var button = options.buttons[i];
+                var $button = $("<input type='button' value='" + button.text + "' />");
+                if (button.click) {
+                    $button.click(button.click);
+                }
+                if (button.primary) {
+                    $button.addClass("primary");
+                }
+                if (button.closeDialog) {
+                    $button.click(close);
+                }
+                $dialogButtons.append($button);
+            }
+        }
+        if (!isUpdatedContent) {
+            $labClient.append($dialog);
+            $dialog.hide().fadeIn("fast", function () {
+                if (options.open) {
+                    options.open();
+                }
+            });
+            var h = $dialogBox.outerHeight();
+            var offset = $dialogBox.offset();
+            $dialogBox.css("marginTop", -h - offset.top).animate({ marginTop: 0 }, 400, function () {
+                setupKnowledgeExpanders($dialog);
+            });
+        }
+        return {
+            close: close
+        };
+    }
+
+
+    function updateTaskProgressBar(numTasksDone, numTasks) {
+        var percentComplete = 0;
+        if (numTasks > 0) {
+            percentComplete = Math.round((numTasksDone / numTasks) * 100);
+        }        
+        $("#taskProgressText").html(percentComplete + "% Tasks Complete");
+        $("#taskProgress").css("width", percentComplete + "%");
+        $("#taskProgressBar").attr("title", numTasksDone + "/" + numTasks + " (" + percentComplete + "%) Tasks Complete");        
+    }
+
+    var taskSkipWarningShown = false;
+
+    function setupContentEventHandlers($container) {
+        //TODO: move as many of these as possible to a $("body").on("click") handler so they are registered once and work for content displayed in dialogs.
+        $container.find(".task-list-item input[type='checkbox']").click(function () {           
+            var $checkbox = $(this);
+            var userHasChecked = $checkbox.prop("checked");
+            var $task = $checkbox.closest(".task-list-item");
+            if ($allTasks == null) {
+                $allTasks = $("#instructionsContent").find(".task-list-item");
+            }
+            var index = $allTasks.index($task);
+            var numDone = index;
+            var numTasks = $allTasks.length;
+            var lastCompletedTaskIndex;            
+
+            if (userHasChecked) {
+                numDone += 1;
+                lastCompletedTaskIndex = index;
+            } else {
+
+                if (labData.EnableTaskProgressTracking && !labData.EnableTaskAutoChecking && labData.LastCompletedTaskIndex > index) {
+                    //Lab is tracking task progress, but auto-checking of other tasks is off. The user has unchecked a task that is NOT the last task, so we reject the change.
+                    $checkbox.prop("checked", true);
+                    return;
+                }
+
+                if (index === 0) {
+                    lastCompletedTaskIndex = null;
+                } else {
+                    lastCompletedTaskIndex = index - 1;
+                }
+            }
+
+            var lastItemToCheckIndex = lastCompletedTaskIndex == null ? -1 : lastCompletedTaskIndex;
+
+            var previousUncheckedBoxes = [];
+            for (var i = 0; i <= lastItemToCheckIndex; i++) {
+                var cbox = $allTasks.eq(i).find("label.checkbox input:checkbox");
+                if (!cbox.prop("checked")){
+                    previousUncheckedBoxes.push(cbox);
+                }                
+            }
+            
+            if (labData.EnableTaskProgressTracking) { //protections for out-of order task checking only run if progress tracking is on. Otherwise, we apply auto-checking at all times.
+                if (userHasChecked && previousUncheckedBoxes.length > 0) {
+                    if (labData.EnableTaskAutoChecking) {
+                        if (!taskSkipWarningShown) {
+                            if (confirm("You have skipped ahead! Are you sure you want to continue? All previous tasks will be marked complete for you.")) {
+                                taskSkipWarningShown = true;
+                            } else {
+                                $checkbox.prop("checked", false);
+                                return;
+                            }
+                        }
+                    } else {
+                        alert("Please complete all previous tasks before marking this one complete.");
+                        $checkbox.prop("checked", false);
+                        return;
+                    }
+                }
+            }
+          
+            for (var i = 0; i < previousUncheckedBoxes.length; i++) {
+                previousUncheckedBoxes[i].prop("checked", true);
+            }
+            for (var j = lastItemToCheckIndex + 1; j < numTasks; j++) {
+                $allTasks.eq(j).find("label.checkbox input[type='checkbox']").prop("checked", false);
+            }
+
+            var percentComplete = 0;
+            if (numTasks > 0) {
+                percentComplete = Math.round((numDone / numTasks) * 100);
+            }
+            labData.LastCompletedTaskIndex = lastCompletedTaskIndex;
+
+            updateTaskProgressBar(numDone, numTasks)
+
+            var url = "/Console/MarkTaskComplete/" + model.id + "?taskIndex=" + lastCompletedTaskIndex + "&percentComplete=" + percentComplete;
+            $.ajax({
+                type: "POST",
+                dataType: "json",
+                data: {},
+                cache: false,
+                url: url
+            }).always(function (response) {
+
+            });
+        });
+
+        if (isChildClient) {
+            $container.find("code").attr("title", "Type Text");
+            $container.find(".selectMachineLink").click(function (e) {
+                e.preventDefault();
+                var machineId = parseInt($(this).attr("data-data"));
+                window.parent.selectMachineById(machineId);
+            });
+            $container.find(".loadMediaLink").click(function (e) {
+                e.preventDefault();
+                var $loadMediaLink = $(this);
+                var mediaId = parseInt($loadMediaLink.attr("data-data"));
+                if ($loadMediaLink.hasClass("opticalMedia")) {
+                    window.parent.loadOpticalMediaOnSelectedMachine(mediaId);
+                } else {
+                    window.parent.loadFloppyMediaOnSelectedMachine(mediaId);
+                }                
+            });
+            $container.find(".commandLink").click(function (e) {
+                e.preventDefault();
+                var $commandLink = $(this);
+                var options = $commandLink.attr("data-options");
+                var target = $commandLink.attr("data-target");
+                if (target) {
+                    var $commandTextArea = $(".command[data-id='" + target + "'] textarea");
+                    if ($commandTextArea.length === 0) {
+                        alert('CONTENT ERROR: Unable to find reference code block "' + target + '"');
+                        return;
+                    }
+                    var commandText = $commandTextArea.val();
+                    if (commandText) {
+                        window.parent.executeCommandOnSelectedMachine(commandText, options);
+                    } 
+                } else {
+                    var $hiddenInput = $commandLink.next();
+                    if ($hiddenInput.hasClass("command")) {
+                        window.parent.executeCommandOnSelectedMachine(decodeURIComponent($hiddenInput.val()), options);
+                    }
+                }               
+            });
+            $container.find(".ctrlAltDeleteLink").click(function (e) {
+                e.preventDefault();
+                window.parent.sendCtrlAltDelete();
+            });
+
+        }
+
+        $container.find(".tipLink").click(function (e) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            var $tiplink = $(this);
+            var $hiddenTip = $tiplink.next();
+            var offset = $(this).offset();
+            var x = offset.left;
+            var y = offset.top + 25;
+            showClickFeedbackMessage($hiddenTip.html(), x, y, 5000);
+        });
+
+        $container.find(".dialogLink").click(function (e) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            var $dialogLink = $(this);
+            var title = $dialogLink.attr("title");
+            var target = $dialogLink.attr("data-target");
+            if (target) {
+                var $hiddenDialog = $("blockquote.referenceContent[data-id='" + target + "']");
+                if ($hiddenDialog.length === 0) {
+                    alert('CONTENT ERROR: Unable to find a reference content "' + target + '"');
+                } else {
+                    showDialog({title:title, content: $hiddenDialog.html(), allowParentOverride: true });
+                }
+            }
+            else {
+                showDialog({title:title, url: $dialogLink.attr("href"), allowParentOverride: true, isInstructions: $dialogLink.hasClass("instructions") });
+            }
+        });
+
+        $container.find(".portalLink").click(function (e) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            var url = this.href;
+            if ($(this).hasClass("home")) {
+                var popupLeft = window.screenLeft != undefined ? window.screenLeft : screen.left;
+                var popupTop = window.screenTop != undefined ? window.screenTop : screen.top;
+                var popUpHeight = 600;
+                var popupWidth = 800;
+                if (navigator.userAgent.indexOf("Edge") >= 0) { //Edge won't allow us to resize the screen after it is opened, so we will attempt to open the window to the best size possible
+                    popupWidth = screen.width * .75;
+                    popUpHeight = screen.height - 200;
+                }
+                var options = "left=" + popupLeft + ",top=" + popupTop + ", height=" + popUpHeight + ",width=" + popupWidth + ",directories=0,titlebar=0,toolbar=0,location=0,status=0,menubar=0,scrollbars=1,resizable=1,fullscreen=0";
+                var redirectUrl = "/Console/CloudPortalRedirect/" + model.id + "?url=" + encodeURI(url);
+                window.open(redirectUrl, "cloudPortal", options);
+            } else {
+                window.open(url, "cloudPortal");
+            }
+        });
+
+        $container.find(".closePortalLink").click(function (e) {
+            e.preventDefault();
+            closePortalWindow();
+        });
+
+        $container.find(".imageLink, img").click(function (e) {
+            var $this = $(this);
+            if ($this.parent().is("a")) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            var imgUrl = $this.hasClass("imageLink") ? this.href : this.src;
+            var url = "/LabProfile/Image/" + labData.LabProfileId + "/?url=" + encodeURIComponent(imgUrl);
+            if (this.title) {
+                url += "&title=" + encodeURIComponent(this.title);
+            }
+            var imageWindow = window.open(url, "imageWindow", "menubar=no,location=no,resizable=yes,scrollbars=yes,status=no");
+            childWindows.push(imageWindow);
+            try {
+                imageWindow.focus();
+            } catch (e) {
+                //
+            }
+        });
+
+        $container.find(".videoLink, video").click(function (e) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            var videoUrl = $(this).hasClass("videoLink") ? this.href : this.src;
+            var url = "/LabProfile/Video/" + labData.LabProfileId + "/?url=" + encodeURIComponent(videoUrl);
+            if (this.title) {
+                url += "&title=" + encodeURIComponent(this.title);
+            }
+            var videoWindow = window.open(url, "videoWindow", "menubar=no,location=no,resizable=yes,scrollbars=yes,status=no");
+            childWindows.push(videoWindow);
+            try {
+                videoWindow.focus();
+            } catch (e) {
+                //
+            }
+        });
+
+        $container.find(".variableTextBox").change(function () {
+            var $textBox = $(this);
+            var name = $textBox.attr("data-name");
+            var val = $textBox.val();
+            var url = "/Console/SaveVariable/" + model.id;
+            if (val === null || val.length === 0) {
+                if (name in labData.Variables) {
+                    delete labData.Variables[name];
+                }
+            } else {
+                labData.Variables[name] = val;
+            }            
+            processVariables();
+            $.ajax({
+                type: "POST",
+                dataType: "json",
+                data: {
+                    name: name,
+                    value: val
+                },
+                cache: false,
+                url: url
+            }).always(function (response) {
+                if (!response || !response.Success) {
+                    var errorMessage = response && response.Error ? response.Error : "Sorry, your value couldn't be stored. You may have trouble accessing this value in the future.";
+                    alert(errorMessage);
+                    return;
+                }
+            });
+        });
+
+    }
+
+    function setupUiEventHandlers() {
+
+        $(document).click(function () {
+            lastUnsyncedActivity = new Date().valueOf();
+            if (mainMenuShown) {
+                $("#mainMenu").slideUp("fast");
+                mainMenuShown = false;
+            }
+        }).keydown(function (event) {
+            lastUnsyncedActivity = new Date().valueOf();
+            if (event.which === 8 && !$(document.activeElement).is("input:focus, textarea:focus, div[contenteditable='true']")) {
+                event.preventDefault();
+            }
+        }).mousemove(function () {
+            lastUnsyncedActivity = new Date().valueOf();
+        });
+
+        if (isChildClient) {
+            $("body").on("click", ".copyable", function () {
+                copyableClicked(this);
+            });
+            $("body").on("click", ".typeText", function () {
+                typeTextClicked(this);
+            });
+            $("body").on("click", "code:not(.nocopy)", function () {
+                typeTextClicked(this, true);
+            });
+        } else {
+            $("body").on("click", ".copyable, code:not(.nocopy)", function () {
+                copyableClicked(this);
+            });
+        }
+
+        $("body").on("click", ".moreKnowledgeLink", function (e) {
+            e.preventDefault();
+            var $link = $(this);
+            var $knowledge = $link.parent().prev();
+            if ($knowledge.hasClass("expanded")) {
+                $knowledge.removeClass("expanded");
+                $link.text("more...");
+            } else {
+                $knowledge.addClass("expanded");
+                $link.text("...less");
+            }
+        });
+
+        $instructionsContent.on("click", "a", function (e) {
+            var href = $(this).attr("href");
+            if (!href) return;
+            if (href.indexOf("#") === 0 && href.length > 1) {
+                e.preventDefault();
+                var $element = $instructionsContent.find(href);
+                if ($element.length > 0) {
+                    var $page = $element.closest(".page");
+                    var newPageIndex = parseInt($page.attr("id").replace("page", ""));
+                    if (newPageIndex != pageIndex) {
+                        pageIndex = newPageIndex;
+                        configureInstructionsPaging();
+                        savePageIndex(pageIndex);
+                    }
+                    var scale = parseInt($("#zoom").val()) / 100.00;
+                    $instructionsContent[0].scrollTop = $element[0].offsetTop * scale;
+                }
+            }
+        }).on("click", ".activity input", function (e) {
+            if (this.checked) {                
+                $(this).closest(".activity").removeClass("requiredError");
+            }
+        }).on("keyup", ".activity input", function (e) {
+            if (this.type == "text" && this.value) {                
+                $(this).closest(".activity").removeClass("requiredError");
+            }
+        }).on("change", ".activity input", function (e) {
+            var $activity = $(this).closest(".activity");
+            var id = parseInt($activity.attr("data-id"));
+            var activityIndex = parseInt($activity.attr("data-index"));
+            var activity = getItemById(labData.Activities, id);
+            if (activity != null) {
+                if (activity.Type == 0 || activity.Type == 10) {
+                    var $checkedItems = $activity.find("input:checked");
+                    var answerIds = [];
+                    for (var i = 0, numChecked = $checkedItems.length; i < numChecked; i++) {
+                        var $checkedItem = $checkedItems.eq(i);
+                        var answerId = parseInt($checkedItem.closest(".answer").attr("data-id"));
+                        answerIds.push(answerId);                        
+                    }
+                    $.ajax({
+                        type: "POST",
+                        dataType: "json",
+                        data: { activityId: id, answerIds: answerIds, activityIndex: activityIndex },
+                        cache: false,
+                        url: "/Console/SaveMutipleChoiceActivity/" + model.id
+                    }).always(function (response) {
+                        if (!response || !response.Success) {
+                            alert(response && response.Error ? response.Error : "Sorry an error occurred");
+                            return;
+                        }
+                    });
+                } else if (activity.Type == 20 || activity.Type == 30) {
+                    text = $activity.find(".answerText").val();
+                    $.ajax({
+                        type: "POST",
+                        dataType: "json",
+                        data: { activityId: id, text: text, activityIndex: activityIndex},
+                        cache: false,
+                        url: "/Console/SaveTextActivity/" + model.id
+                    }).always(function (response) {
+                        if (!response || !response.Success) {
+                            alert(response && response.Error ? response.Error : "Sorry an error occurred");
+                            return;
+                        }
+                    });
+                }
+            }
+        }).on("click", ".activity .evaluate", function (e) {
+            var $evaluate = $(this);
+            var $activity = $evaluate.closest(".activity");
+            $activity.removeClass("requiredError");
+            var id = parseInt($activity.attr("data-id"));
+            var activity = getItemById(labData.Activities, id);
+            var activityIndex = parseInt($activity.attr("data-index"));
+            if (activity != null) {
+                $evaluate.prop("disabled", true);
+                var $feedback = $activity.find(".feedback");
+                if ($feedback.length == 0) {
+                    $feedback = $("<div class='feedback' style='display:none'></div>");
+                    $feedback.insertBefore($evaluate);
+                }
+                var $loading = $activity.find(".loading");                
+                if (activity.Type == 0 || activity.Type == 10) {                    
+                    var $checkedItems = $activity.find("input:checked");
+                    var answerIds = [];
+                    for (var i = 0, numChecked = $checkedItems.length; i < numChecked; i++) {
+                        var $checkedItem = $checkedItems.eq(i);
+                        var answerId = parseInt($checkedItem.closest(".answer").attr("data-id"));
+                        answerIds.push(answerId);
+                    }
+                    if (answerIds.length == 0) {
+                        var offset = $evaluate.offset();
+                        var y = offset.top - 5;
+                        var x = offset.left + $evaluate.outerWidth() + 10;
+                        showClickFeedbackMessage("Please choose an answer", x, y, 2000);
+                        $evaluate.prop("disabled", false);
+                        return;
+                    }
+                    $loading.show();
+                    $.ajax({
+                        type: "POST",
+                        dataType: "json",
+                        data: { activityId: id, answerIds: answerIds, activityIndex: activityIndex },
+                        cache: false,
+                        url: "/Console/EvaluateMutipleChoiceActivity/" + model.id
+                    }).always(function (response) {
+                        $loading.hide();
+                        if (!response || !response.Success) {
+                            $feedback.removeClass("positive").addClass("negative").html(response && response.Error ? response.Error : "Sorry an error occurred").show();
+                            return;
+                        }
+                        if (response.Correct) {
+                            $feedback.removeClass("negative").addClass("positive").html(response.Response ? response.Response : "Correct");
+                        } else {
+                            $feedback.removeClass("positive").addClass("negative").html(response.Response ? response.Response : "Incorrect");
+                        }
+                        if ($feedback.not(":visible")) {
+                            $feedback.slideDown("fast");
+                        }
+                        if (response.AllowRetry) {
+                            $evaluate.prop("disabled", false);
+                        }
+                        $activity.attr("data-evaluated", "1");
+                    });
+                } else if (activity.Type == 20 || activity.Type == 30) {             
+                    text = $activity.find(".answerText").val();
+                    if (text.length == 0) {
+                        var offset = $evaluate.offset();
+                        var y = offset.top - 5;
+                        var x = offset.left + $evaluate.outerWidth() + 10;
+                        showClickFeedbackMessage("Please provide an answer", x, y, 2000);
+                        $evaluate.prop("disabled", false);
+                        return;
+                    }
+                    $loading.show();
+                    $.ajax({
+                        type: "POST",
+                        dataType: "json",
+                        data: { activityId: id, text: text, activityIndex: activityIndex },
+                        cache: false,
+                        url: "/Console/EvaluateTextActivity/" + model.id
+                    }).always(function (response) {
+                        $loading.hide();
+                        if (!response || !response.Success) {
+                            $feedback.removeClass("positive").addClass("negative").html(response && response.Error ? response.Error : "Sorry an error occurred").show();
+                            return;
+                        }
+                        if (response.Correct) {
+                            $feedback.removeClass("negative").addClass("positive").html(response.Response ? response.Response : "Correct");
+                        } else {
+                            $feedback.removeClass("positive").addClass("negative").html(response.Response ? response.Response : "Incorrect");
+                        }
+                        if ($feedback.not(":visible")) {
+                            $feedback.slideDown("fast");
+                        }
+                        if (response.AllowRetry) {
+                            $evaluate.prop("disabled", false);
+                        }
+                        $activity.attr("data-evaluated", "1");                        
+                    });
+                } else if (activity.Type == 40) {
+                    if (activity.DisplayScriptsAsTaskList) {
+                        var $scriptTasks = $activity.find(".scriptTask");
+                        if ($scriptTasks.length == 0) return;
+                        var allowRetry = false;
+                        var runScript = function (scriptIndex) {
+                            if (scriptIndex >= $scriptTasks.length) {
+                                if (allowRetry) {
+                                    $evaluate.prop("disabled", false);
+                                }
+                                $activity.attr("data-evaluated", "1");
+                                return;
+                            }
+                            var $scriptTask = $scriptTasks.eq(scriptIndex);
+                            var scriptId = $scriptTask.attr('data-id');                            
+                            $scriptTask.addClass("running").removeClass("error").removeClass("pass").removeClass("fail");
+                            $response = $scriptTask.find(".response");
+                            $response.html("");
+                            var onError = function (response) {
+                                $scriptTask.addClass("error");
+                                $response.html(response && response.Error ? response.Error : "Sorry an error occurred").hide().slideDown("fast");
+                                $evaluate.prop("disabled", false);
+                                $scriptTask.removeClass("running");
+                            };
+                            $.ajax({
+                                type: "POST",
+                                dataType: "json",
+                                data: { activityId: id, activityIndex: activityIndex, scriptId: scriptId },
+                                cache: false,
+                                url: "/Console/EvaluateAutomatedActivityScript/" + model.id
+                            }).always(function (response) {
+                                if (!response || !response.Success) {
+                                    onError(response);
+                                    return;
+                                }
+                                waitForJob(response.Job, 1000,
+                                    function (jobResponse) {
+                                        $scriptTask.removeClass("running");
+                                        if (jobResponse.Pass) {
+                                            $scriptTask.addClass("pass");
+                                        } else {
+                                            $scriptTask.addClass("fail");
+                                        }
+                                        if (jobResponse.Response || jobResponse.ScriptResponse) {                                                
+                                            if (jobResponse.Response) {
+                                                $response.append($("<div class='textResponse'>" + jobResponse.Response + "</div>"));
+                                            }
+                                            if (jobResponse.ScriptResponse) {
+                                                $response.append($("<div class='scriptResponse'>" + jobResponse.ScriptResponse + "</div>"));
+                                            }
+                                            $response.hide().slideDown();
+                                        }
+                                        allowRetry = jobResponse.AllowRetry;
+                                        if (jobResponse.Variables != null) {
+                                            labData.Variables = jobResponse.Variables;
+                                            processVariables();
+                                        }
+                                        runScript(scriptIndex + 1);
+                                    },
+                                    onError,
+                                    onError
+                                );
+                            });
+                        }
+                        runScript(0);
+                    } else {
+                        if ($feedback.is(":visible")) {
+                            $feedback.slideUp("fast");
+                        }
+                        var onError = function (response) {
+                            $feedback.removeClass("positive").addClass("negative").html(response && response.Error ? response.Error : "Sorry an error occurred").slideDown("fast");
+                            $evaluate.prop("disabled", false);
+                            $loading.hide();
+                        };
+                        $loading.show();
+                        $.ajax({
+                            type: "POST",
+                            dataType: "json",
+                            data: { activityId: id, activityIndex: activityIndex },
+                            cache: false,
+                            url: "/Console/EvaluateAutomatedActivity/" + model.id
+                        }).always(function (response) {
+                            if (!response || !response.Success) {
+                                onError(response);
+                                return;
+                            }
+                            waitForJob(response.Job, 1000,
+                                function (jobResponse) {
+                                    $loading.hide();
+                                    $activity.attr("data-evaluated", "1");
+                                    if (jobResponse.Passed) {
+                                        $feedback.removeClass("negative").addClass("positive");
+                                    } else {
+                                        $feedback.removeClass("positive").addClass("negative");
+                                    }
+                                    if (jobResponse.Response) {
+                                        $feedback.html("<div class='textResponse'>" + jobResponse.Response + "</div>");
+                                    } else {
+                                        $feedback.html("");
+                                    }
+                                    if (jobResponse.ScriptResponse) {
+                                        $feedback.append($("<div class='scriptResponse'>" + jobResponse.ScriptResponse + "</div>"));
+                                    }
+                                    $feedback.slideDown("fast");
+                                    if (jobResponse.AllowRetry) {
+                                        $evaluate.prop("disabled", false);
+                                    }
+                                    if (jobResponse.Variables != null) {
+                                        labData.Variables = jobResponse.Variables;
+                                        processVariables();
+                                    }
+                                },
+                                onError,
+                                onError
+                            );
+                        });
+                    }
+                }
+            }
+        });
+
+        function savePageIndex(pageIndex) {
+            var url = "/Console/MarkInstructionsPageIndex/" + model.id + "?pageIndex=" + pageIndex;
+            $.ajax({
+                type: "POST",
+                dataType: "json",
+                data: {},
+                cache: false,
+                url: url
+            });
+        }
+
+        function getItemById(items, id) {
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].Id == id) {
+                    return items[i];
+                }
+            }
+            return null;
+        }
+
+
+        $("#previous").click(function () {
+            if (pageIndex === 0) { return; }
+            pageIndex -= 1;
+            configureInstructionsPaging();
+            $instructionsContent[0].scrollTop = 0;
+            savePageIndex(pageIndex);
+        });
+
+        $("#next").click(function () {
+            if ($(this).hasClass("disabled")) return;
+
+            var activityBlockEncountered = processIncompleteActivities("page" + pageIndex, false, true);
+            if (activityBlockEncountered) {
+                var y = $("#next").offset().top - 40;
+                showRightOrientedClickFeedbackMessage("Please complete all required activities", 15, y, 2000);
+                return;
+            }
+            
+            var numPages = $(".page").length;
+            if (numPages <= pageIndex + 1) {
+                if (labData.IsExam) {
+                    if (processIncompleteActivities("instructionsContent", true, false)) {
+                        showRightOrientedClickFeedbackMessage("Please complete all required activities", 15, $("#next").offset().top - 40, 2000);
+                        return;
+                    }
+                    showFullScreenMessage({
+                        title: "",
+                        message: "Are you sure you want to submit for grading?", buttons:
+                            [
+                                { text: (labData.IsExam ? "Yes" : "No, not yet"), click: submitForScoring, primary: true },
+                                { text: "No, not yet", click: hideFullScreenMessage }
+                            ]
+                    });
+                } else {
+                    showExitOptions();
+                }
+                return;
+            }          
+
+            pageIndex += 1;
+            configureInstructionsPaging();
+            $instructionsContent[0].scrollTop = 0;
+            savePageIndex(pageIndex);
+        });
+
+        function processIncompleteActivities(containerId, flagRequired, flagNavBlockers) {            
+            var $activities = $("#" + containerId + " .activity");
+            var navigated = false;
+            var flagFound = false;
+            for (var i = 0, numActivities = $activities.length; i < numActivities; i++) {
+                var $activity = $activities.eq(i);
+                var id = parseInt($activity.attr("data-id"));
+                var activity = getItemById(labData.Activities, id);
+                if (activity == null) { continue; }
+                if ((flagRequired && activity.Required) || (flagNavBlockers && activity.BlocksNavigation)) {
+                    if (activity.Type == 0 || activity.Type == 10) {
+                        if ($activity.find("input:checked").length == 0) {
+                            $activity.addClass("requiredError");
+                            flagFound = true;
+                        }
+                    } else if (activity.Type == 20 || activity.Type == 30) {
+                        if (!$activity.find(".answerText").val()) {
+                            $activity.addClass("requiredError");
+                            flagFound = true;
+                        }
+                    } else if (activity.Type == 40) {
+                        if (!$activity.attr("data-evaluated") == "1") {
+                            $activity.addClass("requiredError");
+                            flagFound = true;
+                        }
+                    }
+                }
+                if (flagFound && !navigated) {
+                    navigated = true;
+                    var $page = $activity.closest(".page");
+                    var newPageIndex = parseInt($page.attr("id").replace("page", ""));
+                    if (newPageIndex != pageIndex) {
+                        pageIndex = newPageIndex;
+                        configureInstructionsPaging();
+                        savePageIndex(pageIndex);
+                    }
+                    var scale = parseInt($("#zoom").val()) / 100.00;
+                    $instructionsContent[0].scrollTop = $activity[0].offsetTop * scale;
+                }
+            }
+            return flagFound;
+        }
+
+        $("#theme").change(function () {
+            var themeId = parseInt(this.value);
+            var $selectedOption = $(this).find(":selected");
+            var themeName = $selectedOption.attr("data-name");
+            writeCookie("Theme", themeId, 60);
+            $("#themeStylesheet").attr("href", "/Css/CloudClient/" + themeName + ".css?v=1");
+            if (editWindow && !editWindow.closed && editWindow.setTheme) {
+                editWindow.setTheme(themeName);
+            }
+            if (isChildClient) {
+                window.parent.themChanged(themeName);
+            }
+            $.ajax({
+                type: "POST",
+                dataType: "json",
+                data: {},
+                cache: false,
+                url: "/Console/ChangeTheme/" + model.id + "/?theme=" + themeId
+            }).always(function (response) {
+                //
+                });
+        });
+        
+        $("#zoom").on("input change", function () {
+            setZoom(parseInt(this.value));
+        });
+
+        $(".tabHeading").click(function () {
+            var $tabHeading = $(this);
+            selectTab($tabHeading);
+            var tabId = parseInt($tabHeading.attr("data-id"));
+            $.ajax({
+                url: "/Console/SelectNavTab/" + model.id + "/?tab=" + tabId,
+                type: "POST",
+                dataType: "json",
+                data: {},
+                cache: false
+            });
+            if (isChildClient) {
+                window.parent.navigationTabChanged(tabId);
+            }
+        });        
+
+        $("#save").click(function () {
+            var buttons = [
+                { text: (labData.IsExam ? "Yes, save my exam" : "Yes, save my lab"), click: saveLab, primary:true },
+                { text: "No, not yet", click: hideFullScreenMessage }
+            ];
+            var expiration = new Date();
+            expiration.setDate(expiration.getDate() + labData.MaxSaveDays);
+            var message;
+            if (labData.IsExam) {
+                message = labData.MaxSavedLabInstances
+                    ? "Your exam will be saved for {0} days. It will expire on {1}. You can save up to {2} exams.<br/><br/>Would you like to save your exam and close it for now?".format(labData.MaxSaveDays, expiration.toLocaleString(), labData.MaxSavedLabInstances)
+                    : "Your exam will be saved for {0} days. It will expire on {1}.<br/><br/>Would you like to save your exam and close it for now?".format(labData.MaxSaveDays, expiration.toLocaleString(), labData.MaxSavedLabInstances);
+            } else {
+                message = labData.MaxSavedLabInstances
+                    ? "Your lab will be saved for {0} days. It will expire on {1}. You can save up to {2} labs. <br/><br/>Would you like to save your lab and close it for now?".format(labData.MaxSaveDays, expiration.toLocaleString(), labData.MaxSavedLabInstances)
+                    : "Your lab will be saved for {0} days. It will expire on {1}.<br/><br/>Would you like to save your lab and close it for now?".format(labData.MaxSaveDays, expiration.toLocaleString(), labData.MaxSavedLabInstances);
+            }
+            showFullScreenMessage({
+                title: (labData.IsExam ? "Save your exam" : "Save your lab"),
+                message: message,
+                buttons: buttons
+            });
+        });
+
+        function showExitOptions() {
+            var autoAssessedAsComplete = false;
+            var $tasks = $("#instructionsContent").find(".task-list-item input[type='checkbox']");
+            if ($tasks.length > 0) {
+                var numCheckedTasks = $tasks.filter(":checked").length;
+                if (numCheckedTasks == $tasks.length) {
+                    autoAssessedAsComplete = true;
+                }
+            }
+
+            if (!autoAssessedAsComplete && labData.CanBeMarkedComplete && !labData.EnableTaskProgressTracking) {
+                showFullScreenMessage({
+                    title: "End Lab",
+                    message: "<div style='margin:25px 0 10px 0;'><div><label style='font-size:120%;'><input type='radio' name='endLabChoice' id='endLabComplete'/>End my lab and mark it as complete</label></div><div style='margin-top:16px;'><label style='font-size:120%;'><input type='radio' name='endLabChoice' id='endLabCancel'/>Cancel my lab</label></div><div id='endLabMakeSelection' style='margin-top:10px; visibility:hidden;' class='negative'>Please make a selection</div></div>",
+                    buttons: [
+                        {
+                            text: "OK",
+                            primary: true,
+                            click: function () {
+                                var $container = isChildClient ? window.parent.getFullScreenMessageContainer() : $("#fullScreenMessage");
+                                if ($container.find("#endLabComplete").prop("checked")) {
+                                    endLab(true);
+                                } else if ($container.find("#endLabCancel").prop("checked")) {
+                                    endLab();
+                                } else {
+                                    $container.find("#endLabMakeSelection").css("visibility", "");
+                                }
+                            }
+                        },
+                        { text: "Cancel", click: hideFullScreenMessage }
+                    ]
+                });
+            }
+            else {
+                showFullScreenMessage({
+                    title: "Are you sure you want to end this lab?",
+                    buttons: [
+                        { text: "Yes, end my lab", primary: true, click: function () { endLab(autoAssessedAsComplete); } },
+                        { text: "No, not yet", click: hideFullScreenMessage }
+                    ]
+                });
+            }
+        }
+        
+        $("#exit").click(function () {
+            showExitOptions();
+        });
+
+        $("#disconnect").click(function () {
+            showFullScreenMessage({
+                title: "Disconnect From Lab?",
+                message: "If you disconnect, your lab will continue to run while you’re gone. You can return to it any time before the timer expires. <br/><br/>Are you sure you want to disconnect?",
+                buttons: [
+                    {
+                        text: "Yes, disconnect. I'll be back later.",
+                        primary: true,
+                        click: function () {
+                            labIsComplete();
+                            showFullScreenMessage({
+                                title: "Disconnected",
+                                message: "You have disconnected from your lab. You can now close this browser window.",
+                                showCloseWindowButton: true
+                            });
+                        }
+                    },
+                    { text: "Nevermind, keep me connected.", click: hideFullScreenMessage }
+                ]
+            });
+        });
+
+        $("#closeWindow").click(function () {
+            closePortalWindow();
+            closeWindow();
+        });
+
+        $("#mainMenuButton").click(function (e) {
+            e.stopPropagation();
+            if (mainMenuShown) {
+                $("#mainMenu").slideUp("fast");
+            } else {
+                $("#mainMenu").slideDown("fast");
+            }
+            mainMenuShown = !mainMenuShown;
+        });
+       
+        $("#notificationsButton").click(function() {
+            showDialog({ title: "Notifications", content: "<div id='notificationsDialog'><span class='loadingAnimation-medium'></span></div>", buttons: [{ text: "OK", primary: true, closeDialog: true }] });
+            $.ajax({
+                url: "/Console/GetNotifications/" + model.id,
+                type: "POST",
+                dataType: "json",
+                data: {},
+                cache: false
+            }).always(function(response) {
+                if (response && response.Success) {
+                    var notifications = response.Notifications;
+                    var numNotifications = notifications.length;
+                    var html = "";
+                    if (numNotifications === 0) {
+                        html += "<div class='noNotifications'>You have no notifications</div>";
+                    } else {
+                        for (var i = 0; i < numNotifications; i++) {
+                            var notification = notifications[i];
+                            html += "<div data-id='" + notification.Id + "' class='listedNotification'><div class='listedNotificationDate'>" + notification.Created + "</div><div class='listedNotificationBody'>" + notification.Text + "</div></div>";
+                        }
+                    }
+                    var $notificationDialog = $("#notificationsDialog");
+                    $notificationDialog.html(html);
+                } else {
+                    $("#notificationsDialog").text(response && response.Error ? response.Error : "Sorry an error occurred");
+                }
+            });
+        });        
+
+        $("#editInstructions").click(function () {
+            if (editWindow && !editWindow.closed) {
+                editWindow.focus();
+                return;
+            }
+            if (isSplitWindowClient) {
+                var otherEditWindow = window.parent.getInstructionsEditWindow();
+                if (otherEditWindow != null) {
+                    return;
+                }
+            }
+            var url = "/LabProfile/EditInstructions/" + labData.LabProfileId + "?externalPreview=1";
+            editWindow = window.open(url, "editWindow", "menubar=no,location=no,resizable=yes,scrollbars=yes,status=no");
+            childWindows.push(editWindow);
+            editWindow.focus();
+        });
+
+        $("#bugReport").click(function () {
+            var html = "<div id='bugReport'><div style='float:right;'><div style='font-size:18px; float:left;'>* </div> = Required</div><h2 style='margin-top:0;'>Please enter a one-line summary *</h2><input type='text' id='bugReportName' style='width:100%;' /><h2>Steps to reproduce the problem *</h2><textarea id='bugReportReproductionSteps' style='width:100%;' rows='4'>1. \n2. \n3. </textarea><h2>Expected behavior</h2><textarea id='bugReportExpectedBehavior' style='width:100%;' rows='4'></textarea><h2>What went wrong? *</h2><textarea id='bugReportActualBehavior' style='width:100%;' rows='4'></textarea><h2>Any other comments?</h2><textarea id='bugReportComments' style='width:100%;' rows='4'></textarea></div>";
+            var selectedMachineId = null;
+            var includeScreenshot = false;
+            var screenWidth = 0;
+            var screenHeight = 0;
+            if (isChildClient) {
+                var selectedMachine = window.parent.getSelectedMachine();
+                selectedMachineId = selectedMachine != null ? selectedMachine.ProfileId : null;
+                if (selectedMachineId != null) {
+                    html += "<div><input type='checkbox' checked='checked' id='bugReportIncludeScreenshot'><label for='bugReportIncludeScreenshot'>Include a screenshot of my currently selected machine</label></div>";
+                }                
+            }
+            showDialog({
+                content: html,
+                title: "Report a bug",
+                open: function () { $("#bugReportName").focus(); },
+                buttons: [
+                    {
+                        text: "Submit Bug Report",
+                        primary:true,
+                        click: function () {
+                            if (isChildClient) {
+                                var $bugReportIncludeScreenshot = $("#bugReportIncludeScreenshot");
+                                if ($bugReportIncludeScreenshot.length > 0) {
+                                    var vmSize = window.parent.getVmSize();
+                                    screenWidth = vmSize.width;
+                                    screenHeight = vmSize.height;
+                                    includeScreenshot = $bugReportIncludeScreenshot.prop("checked");
+                                }
+                            }
+                            var data = {
+                                name: $("#bugReportName").val(),
+                                reproductionSteps: $("#bugReportReproductionSteps").val(),
+                                expectedBehavior: $("#bugReportExpectedBehavior").val(),
+                                actualBehavior: $("#bugReportActualBehavior").val(),
+                                comments: $("#bugReportComments").val(),
+                                machineId: selectedMachineId,
+                                screenWidth: screenWidth,
+                                screenHeight: screenHeight,
+                                includeScreenshot: includeScreenshot
+                            };
+                            if (data.name.length === 0) {
+                                alert("Please provide a one-line summary");
+                                return;
+                            }
+                            if (data.reproductionSteps.length === 0) {
+                                alert("Please provide steps to reproduce the problem");
+                                return;
+                            }
+                            if (data.actualBehavior.length === 0) {
+                                alert("Please provide a description of what went wrong");
+                                return;
+                            }
+                            showDialog({
+                                content: "<span class='loadingAnimation-medium'></span>"
+                            });
+                            $.ajax({
+                                url: "/BugReport/Submit/" + model.id,
+                                type: "POST",
+                                dataType: "json",
+                                data: data,
+                                cache: false
+                            }).always(function (response) {
+                                if (response && response.Success) {
+                                    showDialog({
+                                        content: "Your bug report has been successfully submitted. Thanks for your feedback!",
+                                        buttons: [{
+                                            text: "OK",
+                                            primary:true,
+                                            closeDialog:true
+                                        }]
+                                    });
+                                } else {
+                                    alert(response && response.Error ? response.Error : "Sorry an error occurred");
+                                }
+                            });
+                        }
+                    },
+                    {
+                        text: "Cancel",
+                        closeDialog: true
+                    }                    
+                ]
+            });
+        });
+
+    }
+
+    function setZoom(zoom) {
+        if (!enableZoom) return;
+        $("#zoomValue").html(zoom + "%");
+        var input = zoom;
+        var scale = input / 100.00;
+        var width = (10000 / input);
+        $(".zoomable").css({
+            "-webkit-transform": "scale(" + scale + ")",
+            "-moz-transform": "scale(" + scale + ")",
+            "-ms-transform": "scale(" + scale + ")",
+            "-o-transform": "scale(" + scale + ")",
+            "width": width + "%"
+        });
+        if ($("#zoom").val() != zoom) {
+            $("#zoom").val(zoom);
+        }
+    }
+
+    var firstUpdate = true;
+    var disableInstructionsCachingOnNextUpdate = false;
+
+    window.updateInstructions = function (rawContent, bubbleToParent) {
+        if (!editTriggered) { //page output isn't cached when the page first loads. But it will need to be cached while editing, so we need to clear the current instructions UI. This only has to happen the first time the editor is wired up.
+            $("#pages").html("");
+        }
+        editTriggered = true;
+        var contentRoot = "/content/lab" + labData.ContentLabProfileId + "/";
+        instructionsProcessor.process(rawContent, "pages", !disableInstructionsCachingOnNextUpdate, contentRoot, labData.ReplacementTokens,
+            function ($page) {
+                setupContentEventHandlers($page); //consider moving this to document level "on" handlers
+            },
+            labData.Activities
+        );
+        processVariables();
+        disableInstructionsCachingOnNextUpdate = false;
+        if (firstUpdate) {
+            appendExternalManualPages();
+            window.setTimeout(setupTaskProgress, 1);
+        }
+        firstUpdate = false;
+        $allTasks = null; //in case tasks have changed
+        configureInstructionsPaging();
+        if (isChildClient && bubbleToParent) {
+            window.parent.instructionsUpdated(rawContent); //the split content window may need updating
+        }
+    };
+
+    window.updateOptions = function (options) {
+        if (options.enableTaskProgressTracking != null) {
+            labData.EnableTaskProgressTracking = options.enableTaskProgressTracking;
+            if (labData.EnableTaskProgressTracking) {
+                $("#taskProgressBar").show();
+                $instructionsContent.addClass("withTaskProgress");
+                setupTaskProgress();
+            } else {
+                $("#taskProgressBar").hide();
+                $instructionsContent.removeClass("withTaskProgress");
+            }
+        }
+        if (options.enableTaskAutoChecking != null) {
+            labData.EnableTaskAutoChecking = options.enableTaskAutoChecking;
+        }
+    };
+
+    window.addActivity = function (activity) {
+        labData.Activities.push(activity);
+    };
+
+    window.updateActivity = function (activity) {
+        var activities = labData.Activities;
+        for (var i = 0, numActivities = activities.length; i < numActivities; i++) {
+            if (activities[i].Id == activity.Id) {
+                activities[i] = activity;
+                return;
+            }
+        }
+    };
+
+    window.disableInstructionsCachingOnNextUpdate = function() {
+        disableInstructionsCachingOnNextUpdate = true;
+    }
+
+    window.allowScreenshots = function () {
+        return isChildClient && window.parent.takeScreenshot;
+    }
+
+    window.takeScreenshot = function (callback) {
+        window.parent.takeScreenshot(callback);
+    }
+
+    window.getVariableNames = function () {
+        return instructionsProcessor.getVariableNames();
+    }
+
+    return {
+        initialize: initialize,
+        updateTimer: updateTimer,
+        showNotification: showNotification,
+        labIsComplete: labIsComplete,
+        setupKnowledgeExpanders: setupKnowledgeExpanders,
+        getMainMenuExtensionsPlaceHolder: function () { return $("#mainMenuExtensions"); },
+        getHelpExtensionsPlaceHolder: function () { return $("#helpExtensions"); },
+        getResourcesExtensionsPlaceHolder: function () { return $("#resourcesExtensions") },
+        disableNavigationWarning: function () { disableNavigationWarning = true; },
+        selectInstructionsPage: function (index) {
+            if (pageIndex != index) {
+                pageIndex = index;
+                configureInstructionsPaging();
+            }
+        },
+        getInstructionsPageIndex: function () { return pageIndex; },
+        getInstructionsScrollTop: function () { return $instructionsContent[0].scrollTop },
+        setInstructionsScrollTop: function (y) { $instructionsContent[0].scrollTop = y; },
+        selectTab: function (id) {
+            var $tabHeading = $(".tabHeading[data-id='" + id + "']");
+            if ($tabHeading.length > 0) {
+                selectTab($tabHeading);
+            }            
+        },
+        setTheme: function(themeName) {
+            $('#theme option[data-name="' + themeName + '"]').prop('selected', 'selected');
+            $("#themeStylesheet").attr("href", "/Css/CloudClient/" + themeName + ".css?v=1");
+        },
+        setLastCompletedTask: function (index) {
+            var lastItemToCheckIndex = index == null ? -1 : index;
+            if ($allTasks == null) {
+                $allTasks = $("#instructionsContent").find(".task-list-item");
+            }
+            if ($allTasks.length === 0) return;
+            var numTasks = $allTasks.length;
+            for (var i = 0; i <= lastItemToCheckIndex; i++) {
+                $allTasks.eq(i).find("label.checkbox input[type='checkbox']").prop("checked", true);
+            }
+            for (var j = lastItemToCheckIndex + 1; j < numTasks; j++) {
+                $allTasks.eq(j).find("label.checkbox input[type='checkbox']").prop("checked", false);
+            }
+            labData.LastCompletedTaskIndex = index;
+        },
+        getLastCompletedTaskIndex: function () {
+            return labData.LastCompletedTaskIndex;
+        },
+        getZoom: function () { return parseInt($("#zoom").val()); },
+        setZoom: setZoom,
+        splitWindowOpened: function () {
+            if (editWindow && !editWindow.closed) {
+                //if doing live editing, the new window will get content from database and may be missing unsaved changes. We need to force a refresh of content from the live editor.
+                var content = editWindow.getContent();
+                window.parent.instructionsUpdated(content);
+            }
+        },
+        getInstructionsEditWindow: function() {
+            if (editWindow && !editWindow.closed) {
+                editWindow.focus();
+                return editWindow;
+            }
+        },
+        setVariables: function (variables) {
+            labData.Variables = variables;
+            processVariables();
+        }
+    };
+}();
+
+$(function () {
+    labClient.initialize();
+    if (navigator.userAgent.indexOf("Edge") >= 0) { //edge doesn't allow resizing or reposition of the browser window, so we will simply focus the window to ensure it isn't hidden behind the portal window
+        window.setTimeout(function () { window.focus(); }, 5000);
+    }
+});
+
+String.prototype.format = function () {
+    var formatted = this;
+    for (var i = 0; i < arguments.length; i++) {
+        var regexp = new RegExp('\\{' + i + '\\}', 'gi');
+        formatted = formatted.replace(regexp, arguments[i]);
+    }
+    return formatted;
+};
